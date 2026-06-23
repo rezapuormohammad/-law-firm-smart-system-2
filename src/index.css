@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #1e3a8a; /* Deep blue suited for lawyer theme */
+  --color-accent: #d97706;  /* Sophisticated amber */
+  
+  --animate-shimmer: shimmer 2s infinite;
+  --animate-fadeIn: fadeIn 0.4s ease-out;
+
+  @keyframes shimmer {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* Base style resets and customizations */
+html, body {
+  font-family: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbars for a clean workspace experience */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Animations helper classes */
+.shine-gold {
+  background: linear-gradient(90deg, #d97706 0%, #f59e0b 50%, #d97706 100%);
+  background-size: 200% auto;
+  animation: shine 3s linear infinite;
+}
+
+@keyframes shine {
+  to {
+    background-position: 200% center;
+  }
+}

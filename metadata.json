@@ -1,0 +1,8 @@
+{
+  "name": "Smart Law Firm",
+  "description": "Smart automation platform for modern law firms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
