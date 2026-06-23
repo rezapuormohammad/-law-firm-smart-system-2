@@ -243,7 +243,8 @@ export default function BackupSecurityHub({
         ...prev
       ]);
     } catch (error: any) {
-      const errorData = error.message.startsWith('{') ? JSON.parse(error.message) : { error: error.message };
+      const errorMsg = error && error.message ? error.message : "";
+      const errorData = errorMsg.startsWith('{') ? JSON.parse(errorMsg) : { error: errorMsg || "خطای ناشناخته" };
       setCloudError(`خطا در همگام‌سازی: ${errorData.error}`);
       setCloudMsg("خطای عملیاتی در ابر.");
       setCloudLogs((prev) => [`[${new Date().toLocaleTimeString("fa-IR")}] خطا: ${errorData.error}`, ...prev]);

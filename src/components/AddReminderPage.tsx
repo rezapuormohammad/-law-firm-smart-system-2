@@ -20,7 +20,8 @@ import {
   Upload,
   Clock,
   AlignLeft,
-  Calendar
+  Calendar,
+  Search
 } from "lucide-react";
 import { getCurrentJalali, JALALI_MONTH_NAMES, toPersianDigits, toEnglishDigits, addDaysToJalali, formatDateWithSlash, formatTimeWithColon } from "../utils/shamsi";
 import { LegalEvent, EventType, LegalCase, CaseDocument } from "../types";
@@ -52,6 +53,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = Array.from({ length: 60 }, (_, i) => i);
 
 export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBack, editingEvent, onAddDocument }: AddReminderPageProps) {
+  const safeCases = cases || [];
   // TAB/MODE SELECTOR (Judicial vs Non-Judicial)
   const [reminderMode, setReminderMode] = useState<"judicial" | "non-judicial">(() => 
     editingEvent?.type === "یادآوری غیر قضایی" ? "non-judicial" : "judicial"
@@ -221,6 +223,9 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
     }
     return "";
   });
+
+  const [showCaseSelectionDropdown, setShowCaseSelectionDropdown] = useState(false);
+  const [caseSearchQuery, setCaseSearchQuery] = useState("");
 
   const [showDescription, setShowDescription] = useState(() => !!descriptionValue);
   const [showLocation, setShowLocation] = useState(() => !!locationValue);
@@ -656,7 +661,7 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
       descriptionValue ? `توضیحات: ${descriptionValue}` : "",
       locationValue ? `مکان: ${locationValue}` : "",
       linkValue ? `لینک: ${linkValue}` : "",
-      selectedCaseId ? `مرتبط با پرونده: ${cases.find(c => c.id === selectedCaseId)?.title || ""}` : "",
+      selectedCaseId ? `مرتبط با پرونده: ${safeCases.find(c => c.id === selectedCaseId)?.title || ""}` : "",
       `هشدارها: ${alerts.join(", ")}`,
       `تکرار: ${repeatSelected !== "بدون تکرار" ? `${repeatSelected} (تا تاریخ ${targetEndStr})` : "بدون تکرار"}`
     ].filter(Boolean).join("\n | ");
@@ -961,23 +966,197 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
               </div>
             )}
 
-            {/* Case Selector inside "More info" to maximize workspace capability */}
+            {/* Case Selector inside "More info" to maximize workspace capability with search box */}
             <div className="flex items-center gap-4">
               <div className={`flex-1 relative border border-slate-200 ${themeFocusBorder} rounded-2xl h-15 bg-white transition-all shadow-sm`}>
                 <label className="absolute -top-2.5 right-4 bg-white px-2 text-[10px] font-black text-slate-400">پرونده مرتبط (اختیاری)</label>
-                <select
-                  value={selectedCaseId}
-                  onChange={(e) => setSelectedCaseId(e.target.value)}
-                  className="w-full h-full bg-transparent outline-none px-4 text-xs font-bold text-slate-700 text-right appearance-none cursor-pointer"
+                
+                {/* Trigger Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowCaseSelectionDropdown(!showCaseSelectionDropdown)}
+                  className="w-full h-full bg-transparent flex items-center justify-between px-4 text-xs font-bold text-slate-700 text-right focus:outline-none"
                 >
-                  <option value="">بدون ارتباط با پرونده خاص</option>
-                  {cases.map((cs) => (
-                    <option key={cs.id} value={cs.id}>
-                      {cs.title} (کلاسه: {cs.archiveNumber || "ندارد"})
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <span className="truncate pr-1">
+                    {selectedCaseId ? (
+                      (() => {
+                        const cs = safeCases.find(c => c.id === selectedCaseId);
+                        return cs ? `${cs.title} (کلاسه دفتر: ${toPersianDigits(cs.archiveNumber || "ندارد")} | شماره ثنا: ${toPersianDigits(cs.caseNumber || "ندارد")})` : "درحال بارگذاری...";
+                      })()
+                    ) : (
+                      "بدون ارتباط با پرونده خاص"
+                    )}
+                  </span>
+                  <ChevronDown className="w-4 h-4 text-slate-400 shrink-0 mr-2" />
+                </button>
+
+                {/* Dropdown container - Centered Premium Select Modal to match the photo precisely */}
+                {showCaseSelectionDropdown && (
+                  <>
+                    {/* Dark backdrop with blur to match the photo */}
+                    <div 
+                      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[1000] transition-opacity animate-in fade-in duration-200" 
+                      onClick={() => {
+                        setShowCaseSelectionDropdown(false);
+                        setCaseSearchQuery("");
+                      }} 
+                    />
+                    
+                    {/* Centered Modal Card matching the ultra-rounded premium style from the photo */}
+                    <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 md:max-w-lg md:mx-auto bg-white rounded-[32px] shadow-2xl z-[1010] overflow-hidden flex flex-col max-h-[80vh] border border-slate-100 animate-in fade-in zoom-in-95 duration-200 text-right">
+                      
+                      {/* Search box input on top of the list as requested by the user */}
+                      <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col gap-2">
+                        <div className="flex items-center justify-between mb-1 px-1">
+                          <span className="text-xs font-black text-slate-850">انتخاب پرونده مرتبط</span>
+                          <span className="text-[10px] font-bold text-slate-400">یک مورد را علامت بزنید</span>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="جستجو بر اساس نام موکل، شماره ثنا، کلاسه یا موضوع پرونده..."
+                            value={caseSearchQuery}
+                            onChange={(e) => setCaseSearchQuery(e.target.value)}
+                            className={`w-full bg-white border border-slate-250 rounded-2xl pr-10 pl-4 py-2.5 text-xs font-bold text-slate-700 outline-none transition-all placeholder:text-slate-400 placeholder:font-semibold text-right ${
+                              isJudicial ? "focus:border-red-600 focus:ring-1 focus:ring-red-650" : "focus:border-purple-600 focus:ring-1 focus:ring-purple-650"
+                            }`}
+                          />
+                          <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+                          {caseSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setCaseSearchQuery("")}
+                              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Cases Options List with Radio buttons exactly matching the sent photo */}
+                      <div className="overflow-y-auto flex-1 max-h-[50vh] divide-y divide-slate-100">
+                        {/* Option: No association ("بدون ارتباط با پرونده خاص") */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCaseId("");
+                            setCaseSearchQuery("");
+                            setShowCaseSelectionDropdown(false);
+                          }}
+                          className="w-full text-right px-6 py-4 text-sm font-bold transition-all flex items-center justify-between hover:bg-slate-50/50"
+                        >
+                          {/* Radial indicator on the left side to match the photo */}
+                          <div className={`w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center shrink-0 ${
+                            selectedCaseId === "" 
+                              ? (isJudicial ? "border-red-600" : "border-purple-600") 
+                              : "border-slate-300"
+                          }`}>
+                            {selectedCaseId === "" && (
+                              <div className={`w-2.5 h-2.5 rounded-full ${isJudicial ? "bg-red-600" : "bg-purple-600"}`} />
+                            )}
+                          </div>
+
+                          {/* Persian content on the right side */}
+                          <div className="flex flex-col gap-0.5 text-right flex-1 pr-4">
+                            <span className={`text-[13px] font-black ${selectedCaseId === "" ? (isJudicial ? "text-red-700" : "text-purple-700") : "text-slate-700"}`}>
+                              بدون ارتباط با پرونده خاص
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* Filtered options list matching layout */}
+                        {(() => {
+                          const query = caseSearchQuery.trim().toLowerCase();
+                          const filtered = safeCases.filter(cs => {
+                            if (!cs) return false;
+                            if (!query) return true;
+                            const title = (cs.title || "").toLowerCase();
+                            const client = (cs.clientName || "").toLowerCase();
+                            const archive = (cs.archiveNumber || "").toLowerCase();
+                            const court = (cs.courtCaseNumber || "").toLowerCase();
+                            const sana = (cs.caseNumber || "").toLowerCase();
+                            return title.includes(query) || 
+                                   client.includes(query) || 
+                                   archive.includes(query) || 
+                                   court.includes(query) || 
+                                   sana.includes(query);
+                          });
+
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="p-8 text-center text-slate-400 text-xs font-bold">
+                                پرونده‌ای با این مشخصات یافت نشد!
+                              </div>
+                            );
+                          }
+
+                          return filtered.map((cs) => {
+                            const isSelected = selectedCaseId === cs.id;
+                            const archiveText = cs.archiveNumber ? ` (کلاسه: ${toPersianDigits(cs.archiveNumber)})` : "";
+                            const sanaText = cs.caseNumber ? ` (شماره ثنا: ${toPersianDigits(cs.caseNumber)})` : "";
+                            
+                            return (
+                              <button
+                                key={cs.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCaseId(cs.id);
+                                  setCaseSearchQuery("");
+                                  setShowCaseSelectionDropdown(false);
+                                }}
+                                className="w-full text-right px-6 py-4 text-sm font-bold transition-all flex items-center justify-between hover:bg-slate-50/50"
+                              >
+                                {/* Radial indicator on the left side to match the photo exactly */}
+                                <div className={`w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                  isSelected 
+                                    ? (isJudicial ? "border-red-650" : "border-purple-650") 
+                                    : "border-slate-300"
+                                }`}>
+                                  {isSelected && (
+                                    <div className={`w-2.5 h-2.5 rounded-full ${isJudicial ? "bg-red-650" : "bg-purple-650"}`} />
+                                  )}
+                                </div>
+
+                                {/* Case details text on the right side */}
+                                <div className="flex flex-col gap-1 text-right flex-1 pr-4">
+                                  <span className={`text-[13px] font-black leading-relaxed ${
+                                    isSelected 
+                                      ? (isJudicial ? "text-red-750" : "text-purple-750") 
+                                      : "text-slate-800"
+                                  }`}>
+                                    {cs.title} {archiveText}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-bold block">
+                                    موکل: {cs.clientName} {sanaText ? ` | ${sanaText}` : ""}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+
+                      {/* Modal Footer */}
+                      <div className="p-3 bg-slate-50/50 border-t border-slate-100 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCaseSelectionDropdown(false);
+                            setCaseSearchQuery("");
+                          }}
+                          className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${
+                            isJudicial 
+                              ? "bg-red-50 text-red-600 hover:bg-red-100/70" 
+                              : "bg-purple-50 text-purple-600 hover:bg-purple-100/70"
+                          }`}
+                        >
+                          بستن پنجره
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="w-6 flex justify-center text-slate-400">
                 <FileText className="w-5 h-5" />

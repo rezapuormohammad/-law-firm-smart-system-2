@@ -163,7 +163,7 @@ export default function Dashboard({
     setEditSmsPhone2(dev.smsPhone2 || "09901095393");
 
     const matched = cases.find(c => c.id === ev.caseId);
-    setEditCaseSearchTerm(matched ? `${matched.title} (کلاسه: ${matched.archiveNumber})` : "");
+    setEditCaseSearchTerm(matched ? `${matched.title} (کلاسه دفتر: ${toPersianDigits(matched.archiveNumber || "ندارد")} | شماره ثنا: ${toPersianDigits(matched.caseNumber || "ندارد")})` : "");
   };
 
   const handleEditSave = (e: React.FormEvent) => {
@@ -901,7 +901,7 @@ export default function Dashboard({
                             type="button"
                             onClick={() => {
                               setSelectedCaseId(cs.id);
-                              setCaseSearchTerm(`${cs.title} (کلاسه: ${cs.archiveNumber})`);
+                              setCaseSearchTerm(`${cs.title} (کلاسه دفتر: ${toPersianDigits(cs.archiveNumber || "ندارد")} | شماره ثنا: ${toPersianDigits(cs.caseNumber || "ندارد")})`);
                               setShowCaseDropdown(false);
                             }}
                             className={`w-full text-right px-4 py-3 text-xs font-bold transition-colors flex flex-col gap-0.5 border-b border-slate-50 last:border-0 ${
@@ -911,7 +911,7 @@ export default function Dashboard({
                             }`}
                           >
                             <span>{cs.title}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">کلاسه: {cs.archiveNumber}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">کلاسه دفتر: {toPersianDigits(cs.archiveNumber || "ندارد")} | شماره ثنا: {toPersianDigits(cs.caseNumber || "ندارد")}</span>
                           </button>
                         ))
                       ) : (
@@ -1362,13 +1362,13 @@ export default function Dashboard({
                             type="button"
                             onClick={() => {
                               setEditCaseId(cs.id);
-                              setEditCaseSearchTerm(`${cs.title} (کلاسه: ${cs.archiveNumber})`);
+                              setEditCaseSearchTerm(`${cs.title} (کلاسه دفتر: ${toPersianDigits(cs.archiveNumber || "ندارد")} | شماره ثنا: ${toPersianDigits(cs.caseNumber || "ندارد")})`);
                               setShowEditCaseDropdown(false);
                             }}
                             className={`w-full text-right px-4 py-3 text-xs font-bold hover:bg-slate-50 transition-colors flex flex-col gap-0.5 border-b border-slate-50 last:border-0 ${editCaseId === cs.id ? 'bg-[#fef2f2] text-red-600 border-r-4 border-red-600' : 'text-slate-700'}`}
                           >
                             <span>{cs.title}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">کلاسه: {cs.archiveNumber}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">کلاسه دفتر: {toPersianDigits(cs.archiveNumber || "ندارد")} | شماره ثنا: {toPersianDigits(cs.caseNumber || "ندارد")}</span>
                           </button>
                         ))
                       ) : (

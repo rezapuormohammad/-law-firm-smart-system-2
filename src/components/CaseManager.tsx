@@ -679,7 +679,7 @@ export default function CaseManager({
             </div>
 
             <!-- Financial Section -->
-            ${(includeFinancial && (hasValue(caseObj.totalContractAmount) || hasValue(caseObj.downPayment) || hasValue(caseObj.receivedFee) || hasValue(caseObj.paidExpenses) || (caseObj.installments && caseObj.installments.length > 0))) ? `
+            ${(includeFinancial && (hasValue(caseObj.totalContractAmount) || hasValue(caseObj.downPayment) || hasValue(caseObj.receivedFee) || hasValue(caseObj.paidExpenses) || (caseObj.installments && caseObj.installments.length > 0) || (caseObj.payments && caseObj.payments.length > 0))) ? `
             <div class="mb-6">
               <h3 class="text-xs font-black text-slate-900 mb-2 border-r-4 border-amber-500 pr-2 pb-0.5">۳. وضعیت مالی و قرارداد</h3>
               <div class="grid grid-cols-2 gap-4 border border-slate-300 p-4 rounded-xl text-xs bg-slate-50/10">
@@ -690,13 +690,62 @@ export default function CaseManager({
               </div>
               
               ${caseObj.installments && caseObj.installments.length > 0 ? `
-              <div class="mt-2 p-3 border border-slate-200 rounded-xl bg-slate-50/50">
-                <h4 class="text-[10px] font-black text-slate-800 mb-1">جزئیات اقساط حق‌الوکاله:</h4>
-                <ul class="text-[10px] space-y-0.5 list-disc pr-4">
-                  ${caseObj.installments.map(ins => `
-                    <li>مبلغ: <span style="color: #1e40af; font-weight: 600;">${toPersianDigits((ins.amount ?? 0).toLocaleString())} تومان</span> - سررسید: <span style="color: #1e40af; font-weight: 600;">${toPersianDigits(ins.dueDate)}</span> ${ins.isPaid ? `<span class="text-green-600 font-bold">(پرداخت شده ${ins.paidDate ? `در ` + toPersianDigits(ins.paidDate) : ``})</span>` : `<span class="text-red-500 font-bold">(معوق/پرداخت نشده)</span>`}</li>
-                  `).join("")}
-                </ul>
+              <div class="mt-3 border border-slate-350 rounded-xl overflow-hidden mb-4">
+                <div class="bg-slate-100 px-3 py-1.5 border-b border-slate-350">
+                  <h4 class="text-[10px] font-black text-slate-800">جدول اقساط حق‌الوکاله:</h4>
+                </div>
+                <table class="w-full border-collapse text-xs text-right" dir="rtl">
+                  <thead>
+                    <tr class="bg-slate-50 font-bold border-b border-slate-350 text-slate-600">
+                      <th class="p-2 border-l border-slate-350 text-center w-12" style="background:#f1f5f9;">ردیف</th>
+                      <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">مبلغ قسط</th>
+                      <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">تاریخ سررسید</th>
+                      <th class="p-2" style="background:#f1f5f9;">وضعیت پرداخت</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${caseObj.installments.map((ins, idx) => `
+                      <tr class="border-b border-slate-200 last:border-0">
+                        <td class="p-2 border-l border-slate-200 text-center font-mono text-[10px]">${toPersianDigits(idx + 1)}</td>
+                        <td class="p-2 border-l border-slate-200" style="color: #1e40af; font-weight: 600;">${toPersianDigits((ins.amount ?? 0).toLocaleString())} تومان</td>
+                        <td class="p-2 border-l border-slate-200 font-mono">${toPersianDigits(ins.dueDate)}</td>
+                        <td class="p-2">
+                          ${ins.isPaid ? `<span style="color: #16a34a; font-weight: bold;">پرداخت شده ${ins.paidDate ? `(در ` + toPersianDigits(ins.paidDate) + `)` : ``}</span>` : `<span style="color: #d97706; font-weight: bold;">معوق / در انتظار پرداخت</span>`}
+                        </td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+              ` : ""}
+
+              ${caseObj.payments && caseObj.payments.length > 0 ? `
+              <div class="mt-3 border border-slate-350 rounded-xl overflow-hidden mb-4">
+                <div class="bg-slate-100 px-3 py-1.5 border-b border-slate-350">
+                  <h4 class="text-[10px] font-black text-slate-800">تراکنش‌ها و وجوه دریافتی:</h4>
+                </div>
+                <table class="w-full border-collapse text-xs text-right" dir="rtl">
+                  <thead>
+                    <tr class="bg-slate-50 font-bold border-b border-slate-350 text-slate-600">
+                      <th class="p-2 border-l border-slate-350 text-center w-12" style="background:#f1f5f9;">ردیف</th>
+                      <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">بابت / شرح</th>
+                      <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">مبلغ دریافتی</th>
+                      <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">نوع پرداخت</th>
+                      <th class="p-2" style="background:#f1f5f9;">تاریخ پرداخت</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${caseObj.payments.map((p, idx) => `
+                      <tr class="border-b border-slate-200 last:border-0">
+                        <td class="p-2 border-l border-slate-200 text-center font-mono text-[10px]">${toPersianDigits(idx + 1)}</td>
+                        <td class="p-2 border-l border-slate-200" style="color: #334155;">${p.title}</td>
+                        <td class="p-2 border-l border-slate-200" style="color: #16a34a; font-weight: 600;">${toPersianDigits((p.amount ?? 0).toLocaleString())} تومان</td>
+                        <td class="p-2 border-l border-slate-200" style="color: #475569;">${p.type}</td>
+                        <td class="p-2 font-mono">${toPersianDigits(p.date)}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
               </div>
               ` : ""}
             </div>
@@ -1605,6 +1654,24 @@ export default function CaseManager({
                 }
               }
             }} className="space-y-4">
+              {/* تب‌های راهنما برای سهولت دسترسی کاربران به بخش مالی و پرونده */}
+              <div className="flex border-b border-slate-100 pb-2 mb-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setCaseFormStep(1)}
+                  className={`pb-2 text-xs font-bold transition-all relative ${caseFormStep === 1 ? 'text-amber-600 border-b-2 border-amber-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  ۱. مشخصات و مدارک پرونده
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCaseFormStep(2)}
+                  className={`pb-2 text-xs font-bold transition-all relative ${caseFormStep === 2 ? 'text-amber-600 border-b-2 border-amber-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  ۲. مدیریت مالی، وجوه و اقساط
+                </button>
+              </div>
+
               {/* جدول مشخصات و اطلاعات پرونده‌ای موکل منتخب (بخش خودکار) */}
               {caseFormStep === 1 && (
                 <div className="space-y-3">
@@ -2166,7 +2233,7 @@ export default function CaseManager({
                   </div>
 
                   {/* ۳. وضعیت مالی و قرارداد */}
-                  {(hasValue(printableCase.totalContractAmount) || hasValue(printableCase.downPayment) || hasValue(printableCase.receivedFee) || hasValue(printableCase.paidExpenses) || (printableCase.installments && printableCase.installments.length > 0)) && (
+                  {(hasValue(printableCase.totalContractAmount) || hasValue(printableCase.downPayment) || hasValue(printableCase.receivedFee) || hasValue(printableCase.paidExpenses) || (printableCase.installments && printableCase.installments.length > 0) || (printableCase.payments && printableCase.payments.length > 0)) && (
                     <div className="mb-4">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-xs font-bold text-slate-850 border-r-4 border-amber-500 pr-2 pb-0.5">۳. وضعیت مالی و قرارداد</h3>
@@ -2199,13 +2266,70 @@ export default function CaseManager({
                           </div>
                           
                           {printableCase.installments && printableCase.installments.length > 0 && (
-                            <div className="mt-2 p-3 border border-slate-200 rounded-2xl bg-slate-50/20">
-                              <h4 className="text-[10px] font-bold text-slate-700 mb-1">جزئیات اقساط حق‌الوکاله:</h4>
-                              <ul className="text-[10px] space-y-1 list-disc pr-4">
-                                {printableCase.installments.map((ins, i) => (
-                                  <li key={i}>مبلغ: <span className="text-blue-600 font-semibold">{toPersianDigits((ins.amount ?? 0).toLocaleString())} تومان</span> - سررسید: <span className="text-blue-600 font-semibold">{toPersianDigits(ins.dueDate)}</span> {ins.isPaid ? <span className="text-green-600 font-bold">(پرداخت شده {ins.paidDate ? `در ` + toPersianDigits(ins.paidDate) : ``})</span> : <span className="text-red-500 font-bold">(معوق/پرداخت نشده)</span>}</li>
-                                ))}
-                              </ul>
+                            <div className="mt-3 overflow-hidden border border-slate-200 rounded-2xl">
+                              <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                                <h4 className="text-[10px] font-black text-slate-700">جدول اقساط حق‌الوکاله</h4>
+                              </div>
+                              <table className="w-full text-right text-xs border-collapse" dir="rtl">
+                                <thead>
+                                  <tr className="bg-slate-50/50 font-bold text-slate-600 border-b border-slate-200">
+                                    <th className="p-2 border-l border-slate-150 text-center w-12">ردیف</th>
+                                    <th className="p-2 border-l border-slate-150">مبلغ قسط</th>
+                                    <th className="p-2 border-l border-slate-150">تاریخ سررسید</th>
+                                    <th className="p-2">وضعیت پرداخت</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {printableCase.installments.map((ins, idx) => (
+                                    <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                                      <td className="p-2 border-l border-slate-100 text-slate-500 font-mono text-[10px] text-center">{toPersianDigits(idx + 1)}</td>
+                                      <td className="p-2 border-l border-slate-100 text-blue-600 font-semibold">{toPersianDigits((ins.amount ?? 0).toLocaleString())} تومان</td>
+                                      <td className="p-2 border-l border-slate-100 text-slate-600 font-mono">{toPersianDigits(ins.dueDate)}</td>
+                                      <td className="p-2">
+                                        {ins.isPaid ? (
+                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 border border-green-200 text-[10px] font-bold text-green-600">
+                                            پرداخت شده {ins.paidDate ? `(در ` + toPersianDigits(ins.paidDate) + `)` : ``}
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-600">
+                                            معوق / در انتظار پرداخت
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {printableCase.payments && printableCase.payments.length > 0 && (
+                            <div className="mt-3 overflow-hidden border border-slate-200 rounded-2xl">
+                              <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                                <h4 className="text-[10px] font-black text-slate-700">تراکنش‌ها و وجوه دریافتی</h4>
+                              </div>
+                              <table className="w-full text-right text-xs border-collapse" dir="rtl">
+                                <thead>
+                                  <tr className="bg-slate-50/50 font-bold text-slate-600 border-b border-slate-200">
+                                    <th className="p-2 border-l border-slate-150 text-center w-12">ردیف</th>
+                                    <th className="p-2 border-l border-slate-150">بابت / شرح</th>
+                                    <th className="p-2 border-l border-slate-150">مبلغ دریافتی</th>
+                                    <th className="p-2 border-l border-slate-150">نوع پرداخت</th>
+                                    <th className="p-2">تاریخ پرداخت</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {printableCase.payments.map((p, idx) => (
+                                    <tr key={p.id || idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                                      <td className="p-2 border-l border-slate-100 text-slate-500 font-mono text-[10px] text-center">{toPersianDigits(idx + 1)}</td>
+                                      <td className="p-2 border-l border-slate-100 text-slate-700">{p.title}</td>
+                                      <td className="p-2 border-l border-slate-100 text-green-600 font-semibold">{toPersianDigits((p.amount ?? 0).toLocaleString())} تومان</td>
+                                      <td className="p-2 border-l border-slate-100 text-slate-600">{p.type}</td>
+                                      <td className="p-2 font-mono text-slate-600">{toPersianDigits(p.date)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
                           )}
                         </>

@@ -50,7 +50,19 @@ const INITIAL_CASES: LegalCase[] = [
     description: "دادخواست توقیف اموال زوج بابت مهریه مشتمل بر ۱۱۰ سکه تمام بهار آزادی انجام شده و در مرحله کارشناسی پلاک ثبتی است.",
     receivedFee: 45000000,
     paidExpenses: 12000000,
-    createdAt: "۱۴۰۳/۱۰/۱۶"
+    totalContractAmount: 60000000,
+    downPayment: 15000000,
+    createdAt: "۱۴۰۳/۱۰/۱۶",
+    installments: [
+      { id: "ins_1", amount: 15000000, dueDate: "۱۴۰۳/۱۱/۱۵", isPaid: true, paidDate: "۱۴۰۳/۱۱/۱۴" },
+      { id: "ins_2", amount: 15000000, dueDate: "۱۴۰۳/۱۲/۱۵", isPaid: true, paidDate: "۱۴۰۳/۱۲/۱۲" },
+      { id: "ins_3", amount: 15000000, dueDate: "۱۴۰۴/۰۲/۱۵", isPaid: false }
+    ],
+    payments: [
+      { id: "p_1", title: "پیش پرداخت قرارداد", amount: 15000000, type: "کارت به کارت", date: "۱۴۰۳/۱۰/۱۸" },
+      { id: "p_2", title: "قسط اول حق الوکاله", amount: 15000000, type: "کارت به کارت", date: "۱۴۰۳/۱۱/۱۴" },
+      { id: "p_3", title: "قسط دوم حق الوکاله", amount: 15000000, type: "کارت به کارت", date: "۱۴۰۳/۱۲/۱۲" }
+    ]
   },
   {
     id: "ca_2",
@@ -67,7 +79,17 @@ const INITIAL_CASES: LegalCase[] = [
     description: "حکم بدوی مبنی بر محکومیت موکل صادر شده بود. لایحه اعتراض تسلیم و پرونده با ایرادات حقوقی به مرحله تجدیدنظر ارسال شده است.",
     receivedFee: 25000050,
     paidExpenses: 4500000,
-    createdAt: "۱۴۰۴/۰۲/۲۱"
+    totalContractAmount: 35000000,
+    downPayment: 10000000,
+    createdAt: "۱۴۰۴/۰۲/۲۱",
+    installments: [
+      { id: "ins_4", amount: 15000050, dueDate: "۱۴۰۴/۰۳/۱۵", isPaid: true, paidDate: "۱۴۰۴/۰۳/۱۰" },
+      { id: "ins_5", amount: 10000000, dueDate: "۱۴۰۴/۰۵/۱۵", isPaid: false }
+    ],
+    payments: [
+      { id: "p_4", title: "پیش پرداخت تسویه اول", amount: 10000000, type: "چک", date: "۱۴۰۴/۰۲/۲۲" },
+      { id: "p_5", title: "تسویه قسط اول", amount: 15000050, type: "کارت به کارت", date: "۱۴۰4/۰۳/۱۰" }
+    ]
   },
   {
     id: "ca_3",
@@ -84,7 +106,17 @@ const INITIAL_CASES: LegalCase[] = [
     description: "جلسه دادرسی برای استعلام ثبتی و احراز مالکیت اولیه تشکیل می‌شود. مدارک انتقال قرارداد پیش‌فروش ضمیمه پرونده است.",
     receivedFee: 85000200,
     paidExpenses: 19500000,
-    createdAt: "۱۴۰۴/۰۳/۰۲"
+    totalContractAmount: 120000000,
+    downPayment: 30000000,
+    createdAt: "۱۴۰۴/۰۳/۰۲",
+    installments: [
+      { id: "ins_6", amount: 55000200, dueDate: "۱۴۰۴/۰۴/۱۵", isPaid: true, paidDate: "۱۴۰۴/۰۴/۱۲" },
+      { id: "ins_7", amount: 35000000, dueDate: "۱۴۰۴/۰۷/۱۵", isPaid: false }
+    ],
+    payments: [
+      { id: "p_6", title: "دریافتی غرامت اولیه", amount: 30000000, type: "کارت به کارت", date: "۱۴۰۴/۰۳/۰۵" },
+      { id: "p_7", title: "تسویه قسط سنگین", amount: 55000200, type: "کارت به کارت", date: "۱۴۰۴/۰۴/۱۲" }
+    ]
   }
 ];
 
@@ -221,12 +253,61 @@ export function loadAllData() {
     };
   }
 
+  const parsedCasesStr = cases || "[]";
+  let parsedCases: LegalCase[] = [];
+  try {
+    const temp = JSON.parse(parsedCasesStr);
+    if (Array.isArray(temp)) {
+      parsedCases = temp;
+    }
+  } catch (e) {
+    parsedCases = [];
+  }
+
+  const migratedCases = parsedCases.map(c => {
+    const defaultCase = INITIAL_CASES.find(ic => ic.id === c.id);
+    if (defaultCase) {
+      return {
+        ...c,
+        totalContractAmount: c.totalContractAmount ?? defaultCase.totalContractAmount,
+        downPayment: c.downPayment ?? defaultCase.downPayment,
+        installments: c.installments && c.installments.length > 0 ? c.installments : defaultCase.installments,
+        payments: c.payments && c.payments.length > 0 ? c.payments : defaultCase.payments
+      };
+    }
+    return c;
+  });
+
+  let parsedClients: any[] = [];
+  try {
+    const temp = JSON.parse(clients || "[]");
+    if (Array.isArray(temp)) parsedClients = temp;
+  } catch (e) {}
+
+  let parsedNotes: any[] = [];
+  try {
+    const temp = JSON.parse(notes || "[]");
+    if (Array.isArray(temp)) parsedNotes = temp;
+  } catch (e) {}
+
+  let parsedDocuments: any[] = [];
+  try {
+    const temp = JSON.parse(documents || "[]");
+    if (Array.isArray(temp)) parsedDocuments = temp;
+  } catch (e) {}
+
+  let parsedEvents: any[] = [];
+  try {
+    const temp = JSON.parse(events || "[]");
+    if (Array.isArray(temp)) parsedEvents = temp;
+  } catch (e) {}
+
   return {
-    clients: JSON.parse(clients),
-    cases: JSON.parse(cases || "[]"),
-    notes: JSON.parse(notes || "[]"),
-    documents: JSON.parse(documents || "[]"),
-    events: JSON.parse(events || "[]"),
+    clients: parsedClients,
+    cases: migratedCases,
+    notes: parsedNotes,
+    documents: parsedDocuments,
+    events: parsedEvents,
   };
 }
 
