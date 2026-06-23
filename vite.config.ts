@@ -7,6 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: 'inline',
       manifest: {
         name: 'سیستم هوشمند موسسه حقوقی',
         short_name: 'مدیریت حقوقی',
@@ -19,7 +20,8 @@ export default defineConfig({
           {
             src: 'https://cdn-icons-png.flaticon.com/512/3135/3135671.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }
