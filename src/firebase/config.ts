@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 export const db = {};
 export const auth = {};
 export const googleProvider = {};
@@ -7,16 +8,16 @@ type User = { uid: string; email?: string | null };
 // Mock auth state triggers
 const triggerAuthStateChange = (user: any) => {
   if (user) {
-    localStorage.setItem('mock_user', JSON.stringify(user));
+    safeStorage.setItem('mock_user', JSON.stringify(user));
   } else {
-    localStorage.removeItem('mock_user');
+    safeStorage.removeItem('mock_user');
   }
   window.dispatchEvent(new CustomEvent('mock_auth_change', { detail: user }));
 };
 
 export const onAuthStateChanged = (auth: any, callback: (user: User | null) => void) => {
   const check = () => {
-    const user = localStorage.getItem('mock_user');
+    const user = safeStorage.getItem('mock_user');
     callback(user ? JSON.parse(user) : null);
   };
   check();
@@ -25,7 +26,7 @@ export const onAuthStateChanged = (auth: any, callback: (user: User | null) => v
 };
 
 export const signOut = async (auth: any) => {
-  localStorage.removeItem('mock_user');
+  safeStorage.removeItem('mock_user');
   window.dispatchEvent(new CustomEvent('mock_auth_change', { detail: null }));
 };
 

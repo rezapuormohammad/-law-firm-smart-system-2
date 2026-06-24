@@ -67,8 +67,7 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
       return editingEvent.jalaliDate;
     }
     const rightNow = getCurrentJalali();
-    const tmrow = addDaysToJalali(rightNow.jy, rightNow.jm, rightNow.jd, 1);
-    return `${tmrow.jy}/${String(tmrow.jm).padStart(2, "0")}/${String(tmrow.jd).padStart(2, "0")}`;
+    return `${rightNow.jy}/${String(rightNow.jm).padStart(2, "0")}/${String(rightNow.jd).padStart(2, "0")}`;
   });
   const [njTime, setNjTime] = useState(() => editingEvent?.type === "یادآوری غیر قضایی" ? editingEvent.time : "09:00");
   const [njPdfFile, setNjPdfFile] = useState<File | null>(null);
@@ -149,7 +148,6 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
   
   // Dynamic current date initialization
   const now = getCurrentJalali();
-  const tomorrow = addDaysToJalali(now.jy, now.jm, now.jd, 1);
 
   const initDate = (() => {
     if (editingEvent && editingEvent.jalaliDate) {
@@ -163,7 +161,7 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
         }
       }
     }
-    return { y: tomorrow.jy, m: tomorrow.jm, d: tomorrow.jd };
+    return { y: now.jy, m: now.jm, d: now.jd };
   })();
 
   const initTime = (() => {
@@ -656,12 +654,14 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
 
     const targetEndStr = toEnglishDigits(endRepeatDate);
 
+    const matchedCase = selectedCaseId ? safeCases.find(c => c.id === selectedCaseId) : undefined;
+
     // Compile descriptions
     const extraDetails = [
       descriptionValue ? `توضیحات: ${descriptionValue}` : "",
       locationValue ? `مکان: ${locationValue}` : "",
       linkValue ? `لینک: ${linkValue}` : "",
-      selectedCaseId ? `مرتبط با پرونده: ${safeCases.find(c => c.id === selectedCaseId)?.title || ""}` : "",
+      selectedCaseId ? `مرتبط با پرونده: ${matchedCase?.title || ""}` : "",
       `هشدارها: ${alerts.join(", ")}`,
       `تکرار: ${repeatSelected !== "بدون تکرار" ? `${repeatSelected} (تا تاریخ ${targetEndStr})` : "بدون تکرار"}`
     ].filter(Boolean).join("\n | ");
@@ -683,6 +683,8 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
         alarmEnabled: alerts.length > 0,
         description: extraDetails,
         caseId: selectedCaseId || undefined,
+        caseTitle: matchedCase?.title || undefined,
+        clientName: matchedCase?.clientName || undefined,
         alarm1Hour: alerts.includes("۱ ساعت قبل"),
         alarm1Day: alerts.includes("۱ روز قبل"),
         alarm1Week: alerts.includes("۱ هفته قبل"),
@@ -701,6 +703,8 @@ export default function AddReminderPage({ cases, onAddEvent, onUpdateEvent, onBa
         type: "پیگیری اداری",
         jalaliDate: formattedJalaliDate,
         time: formattedTime,
+        caseTitle: matchedCase?.title || undefined,
+        clientName: matchedCase?.clientName || undefined,
         alarmEnabled: alerts.length > 0,
         description: extraDetails,
         caseId: selectedCaseId || undefined,

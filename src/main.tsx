@@ -1,16 +1,37 @@
+import './polyfill.ts';
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-if (window.location.hash.includes('access_token=') && window.opener) {
-  const hash = window.location.hash.substring(1);
-  // OAuth2 implicit grant uses fragments where params are separated by &
-  const params = new URLSearchParams(hash);
+let hasOpener = false;
+try {
+  hasOpener = window.opener != null;
+} catch (e) {
+  hasOpener = false;
+}
+
+let hasHashMatch = false;
+let hashVal = '';
+try {
+  if (window.location.hash.includes('access_token=') && hasOpener) {
+    hasHashMatch = true;
+    hashVal = window.location.hash.substring(1);
+  }
+} catch (e) {
+  hasHashMatch = false;
+}
+
+if (hasHashMatch) {
+  const params = new URLSearchParams(hashVal);
   const token = params.get('access_token');
   if (token) {
-    window.opener.postMessage({ type: 'ONEDRIVE_TOKEN', token }, '*');
-    window.close();
+    try {
+      window.opener.postMessage({ type: 'ONEDRIVE_TOKEN', token }, '*');
+    } catch(e) {}
+    try {
+      window.close();
+    } catch(e) {}
   }
 } else {
   createRoot(document.getElementById('root')!).render(

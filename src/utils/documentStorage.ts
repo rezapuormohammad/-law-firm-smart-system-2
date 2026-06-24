@@ -6,7 +6,21 @@ class DocumentDb {
   async init(): Promise<IDBDatabase> {
     if (this.db) return this.db;
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, 1);
+      let request;
+      try {
+        let idb = null;
+        try {
+          if (typeof window !== "undefined") idb = window.indexedDB;
+        } catch(e) {}
+
+        if (idb) {
+          request = idb.open(this.dbName, 1);
+        } else {
+          return reject(new Error("indexedDB is not available"));
+        }
+      } catch (err) {
+        return reject(err);
+      }
       request.onupgradeneeded = (e) => {
         const db = request.result;
         if (!db.objectStoreNames.contains(this.storeName)) {

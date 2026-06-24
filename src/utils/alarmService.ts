@@ -105,34 +105,38 @@ export class AlarmService {
   }
 
   static showNotification(title: string, body: string) {
-    if ("Notification" in window && Notification.permission === "granted") {
-      const options: any = {
-        body: toPersianDigits(body),
-        icon: "/favicon.ico",
-        badge: "/favicon.ico",
-        vibrate: [1000, 500, 1000, 500, 1000, 500, 1000], // Strong vibration for notification
-        requireInteraction: true, // Persist on screen until user interacts with it
-        renotify: true, // Force ring/vibrate even if already showing
-        tag: `alarm-${Date.now()}` // Unique tag to ensure it alerts
-      };
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        const options: any = {
+          body: toPersianDigits(body),
+          icon: "/favicon.ico",
+          badge: "/favicon.ico",
+          vibrate: [1000, 500, 1000, 500, 1000, 500, 1000], // Strong vibration for notification
+          requireInteraction: true, // Persist on screen until user interacts with it
+          renotify: true, // Force ring/vibrate even if already showing
+          tag: `alarm-${Date.now()}` // Unique tag to ensure it alerts
+        };
 
-      try {
-        new Notification(toPersianDigits(title), options);
-      } catch (err) {
-        console.warn("[AlarmService] Failed to construct Notification directly, trying ServiceWorker fallback...", err);
-        if ("serviceWorker" in navigator) {
-          navigator.serviceWorker.ready.then((registration) => {
-            registration.showNotification(toPersianDigits(title), options);
-          }).catch((swErr) => {
-            console.error("[AlarmService] ServiceWorker showNotification failed too:", swErr);
-          });
+        try {
+          new Notification(toPersianDigits(title), options);
+        } catch (err) {
+          console.warn("[AlarmService] Failed to construct Notification directly, trying ServiceWorker fallback...", err);
+          try {
+            if ("serviceWorker" in navigator && navigator.serviceWorker) {
+              navigator.serviceWorker.ready.then((registration) => {
+                registration.showNotification(toPersianDigits(title), options);
+              }).catch((swErr) => {
+                console.error("[AlarmService] ServiceWorker showNotification failed too:", swErr);
+              });
+            }
+          } catch(e) {}
         }
       }
-    }
-    
-    // Also trigger direct device vibration if the browser is focused
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      navigator.vibrate([1000, 500, 1000, 500, 1000]);
-    }
+      
+      // Also trigger direct device vibration if the browser is focused
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try { navigator.vibrate([1000, 500, 1000, 500, 1000]); } catch(e) {}
+      }
+    } catch(e) {}
   }
 }

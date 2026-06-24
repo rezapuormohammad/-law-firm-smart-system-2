@@ -360,6 +360,10 @@ export function calculateJudicialDeadline(
         daysCount = 10;
         typeName = "مهلت اجرای حکم (ماده ۳۴ قانون اجرای احکام)";
         break;
+      case "judicial_deadline":
+        daysCount = customDays + 2;
+        typeName = `مهلت قضایی (${customDays} روز + ۲ روز ابلاغ و اقدام)`;
+        break;
       case "custom":
         daysCount = customDays;
         typeName = `موعد سفارشی (${customDays} روز)`;

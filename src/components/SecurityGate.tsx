@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import React, { useState } from "react";
 import { Lock, Shield, User, Key, ShieldCheck, HelpCircle, Fingerprint } from "lucide-react";
 import { toPersianDigits } from "../utils/shamsi";
@@ -38,6 +39,14 @@ export default function SecurityGate({
   const [loginPass, setLoginPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [isScanning, setIsScanning] = useState(false);
+  
+  const isCurrentlyInIframe = (() => {
+    try {
+      return window.self !== window.top;
+    } catch(e) {
+      return true;
+    }
+  })();
 
   const handleBiometricLogin = async () => {
     if (!window.isSecureContext || !window.PublicKeyCredential) {
@@ -46,7 +55,12 @@ export default function SecurityGate({
     }
 
     // Check if we are in an iframe
-    const isInIframe = window.self !== window.top;
+    let isInIframe = false;
+    try {
+      isInIframe = window.self !== window.top;
+    } catch (e) {
+      isInIframe = true; // if it throws, we are in an iframe for sure
+    }
     
     try {
       setIsScanning(true);
@@ -55,7 +69,7 @@ export default function SecurityGate({
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
       
-      const hasEnrolled = localStorage.getItem("biometric_enrolled") === "true";
+      const hasEnrolled = safeStorage.getItem("biometric_enrolled") === "true";
       const currentHost = window.location.hostname;
 
       if (!hasEnrolled) {
@@ -92,9 +106,9 @@ export default function SecurityGate({
 
         const credential = await navigator.credentials.create(createOptions);
         if (credential) {
-          localStorage.setItem("biometric_enrolled", "true");
+          safeStorage.setItem("biometric_enrolled", "true");
           const rawId = new Uint8Array((credential as any).rawId);
-          localStorage.setItem("biometric_cred_id", btoa(String.fromCharCode(...rawId)));
+          safeStorage.setItem("biometric_cred_id", btoa(String.fromCharCode(...rawId)));
           
           setLoginError("اثر انگشت شما با موفقیت ثبت شد. از این پس می‌توانید بدون پسورد وارد شوید.");
           setTimeout(() => {
@@ -104,7 +118,7 @@ export default function SecurityGate({
         }
       } else {
         // Verification phase
-        const storedCredId = localStorage.getItem("biometric_cred_id");
+        const storedCredId = safeStorage.getItem("biometric_cred_id");
         const getOptions: any = {
           publicKey: {
             challenge: challenge,
@@ -139,7 +153,7 @@ export default function SecurityGate({
         setLoginError("این دستگاه از تنظیمات امنیتی فعلی پشتیبانی نمی‌کند.");
       } else if (err.name === "InvalidStateError") {
         // Already registered on this device usually
-        localStorage.setItem("biometric_enrolled", "true");
+        safeStorage.setItem("biometric_enrolled", "true");
         setLoginError("این دستگاه قبلاً ثبت شده است. دوباره تلاش کنید.");
       } else {
         setLoginError("سیستم بیومتریک در دسترس نیست. شاید نیاز به تنظیم مجدد باشد.");
@@ -324,12 +338,12 @@ export default function SecurityGate({
             {loginError && (
               <div className="p-3 bg-red-950/20 text-red-400 border border-red-500/25 rounded-xl text-[11px] font-bold text-center space-y-2">
                 <p>{loginError}</p>
-                {localStorage.getItem("biometric_enrolled") === "true" && (
+                {safeStorage.getItem("biometric_enrolled") === "true" && (
                   <button 
                     type="button" 
                     onClick={() => {
-                      localStorage.removeItem("biometric_enrolled");
-                      localStorage.removeItem("biometric_cred_id");
+                      safeStorage.removeItem("biometric_enrolled");
+                      safeStorage.removeItem("biometric_cred_id");
                       setLoginError("تنظیمات بیومتریک بازنشانی شد. می‌توانید دوباره تلاش کنید.");
                     }}
                     className="text-[9px] text-red-300 hover:text-red-200 underline cursor-pointer font-black"
@@ -401,7 +415,7 @@ export default function SecurityGate({
                     <HelpCircle className="w-3.5 h-3.5 text-amber-500/60" />
                     در صورت استفاده اول برای نخستین بار، پسورد پیش‌فرض <strong className="text-slate-400 font-mono">1234</strong> است.
                   </div>
-                  {window.self !== window.top && (
+                  {isCurrentlyInIframe && (
                     <a 
                       href={window.location.href} 
                       target="_blank" 

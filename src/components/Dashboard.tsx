@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import React, { useState, useEffect } from "react";
 import { toPersianDigits, isEventExpired, formatTimeWithColon, formatDateWithSlash, getDaysRemaining, getEventTimestamp, getRemainingTimeText, getCurrentJalali, JALALI_MONTH_NAMES } from "../utils/shamsi";
 import { LegalCase, Client, LegalEvent, EventType, CaseDocument } from "../types";
@@ -77,16 +78,16 @@ export default function Dashboard({
     }
   })();
 
-  const activeCasesCount = cases.filter(c => c.status === "جریان دارد").length;
-  const closedCasesCount = cases.filter(c => c.status === "مختومه").length;
-  const upcomingSessionsCount = events.filter(e => e.type === "جلسه دادرسی").filter(ev => !ev.isArchived && !isEventExpired(ev.jalaliDate, ev.time, 5, ev.endRepeatDate)).length;
-  const upcomingRemindersCount = events.filter(e => e.type !== "جلسه دادرسی").filter(ev => !ev.isArchived && !isEventExpired(ev.jalaliDate, ev.time, 5, ev.endRepeatDate)).length;
+  const activeCasesCount = (cases || []).filter(c => c && c.status === "جریان دارد").length;
+  const closedCasesCount = (cases || []).filter(c => c && c.status === "مختومه").length;
+  const upcomingSessionsCount = (events || []).filter(e => e && e.type === "جلسه دادرسی").filter(ev => ev && !ev.isArchived && !isEventExpired(ev.jalaliDate, ev.time, 5, ev.endRepeatDate)).length;
+  const upcomingRemindersCount = (events || []).filter(e => e && e.type !== "جلسه دادرسی").filter(ev => ev && !ev.isArchived && !isEventExpired(ev.jalaliDate, ev.time, 5, ev.endRepeatDate)).length;
 
   const [quickNotesCount, setQuickNotesCount] = useState<number>(0);
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("r_quick_notes_v2");
+      const saved = safeStorage.getItem("r_quick_notes_v2");
       if (saved) {
         setQuickNotesCount(JSON.parse(saved).length);
       }
@@ -628,9 +629,14 @@ export default function Dashboard({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 font-sans">
-              {[...events]
-                .filter(ev => ev.type !== "جلسه دادرسی" && !ev.isArchived && !isEventExpired(ev.jalaliDate, ev.time, 5, ev.endRepeatDate))
-                .sort((a, b) => getEventTimestamp(a.jalaliDate, a.time) - getEventTimestamp(b.jalaliDate, b.time))
+              {(events || [])
+                .filter(ev => ev && ev.type !== "جلسه دادرسی" && !ev.isArchived && !isEventExpired(ev.jalaliDate, ev.time, 5, ev.endRepeatDate))
+                .sort((a, b) => {
+                  if (!a || !b) return 0;
+                  const targetA = (a as any).endRepeatDate || a.jalaliDate || "";
+                  const targetB = (b as any).endRepeatDate || b.jalaliDate || "";
+                  return getDaysRemaining(targetA) - getDaysRemaining(targetB);
+                })
                 .map((ev) => {
                   const dev = ev as any;
                   const times = [];
@@ -671,7 +677,10 @@ export default function Dashboard({
                           <p className={`text-[9.5px] mt-1 truncate ${isNonJudicial ? "text-purple-800" : "text-slate-500"}`}>پرونده: {ev.caseTitle}</p>
                         )}
                         {ev.clientName && (
-                          <p className={`text-[9.5px] mt-0.5 truncate font-bold ${isNonJudicial ? "text-purple-700" : "text-slate-450"}`}>موکل: {ev.clientName}</p>
+                          <p className={`text-[9.5px] mt-0.5 truncate font-black p-1 bg-red-100/50 rounded-lg border border-red-200/30 ${isNonJudicial ? "text-purple-700 bg-purple-100/50 border-purple-200/30" : "text-red-800"}`}>
+                            <Users className="w-3 h-3 inline-block ml-1" />
+                            موکل: {ev.clientName}
+                          </p>
                         )}
                         
                         {/* Calculated remaining days countdown warning */}
@@ -1329,7 +1338,7 @@ export default function Dashboard({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setEditType("سایر")}
+                    onClick={() => setEditType("سایر رویدادها")}
                     className={`py-3.5 rounded-2xl font-black text-xs transition cursor-pointer text-center border ${editType !== "جلسه دادرسی" ? "bg-red-600 text-white border-red-600" : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"}`}
                   >
                     آلارم / سایر موارد

@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import { useState, useEffect } from "react";
 import { toPersianDigits, toEnglishDigits, formatPersianCurrency, formatJalaliDate, getCurrentJalali, jalaliToGregorian, getJalaliMonthDays, JALALI_MONTH_NAMES, getJalaliFirstWeekday } from "../utils/shamsi";
 import {
@@ -12,6 +13,7 @@ import {
   DIYEH_RATES
 } from "../utils/calculators";
 import { Calculator, Award, Calendar, DollarSign, FileText, Printer, CheckCircle2, AlertCircle, Clock, Search, Lock, ChevronDown, Check, Info, ArrowLeft, Plus, Trash2, Globe, RefreshCw, Users, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { numberToPersianWords, persianWordsToNumber, formatThousandsSeparator, persianToEnglishDigits, englishToPersianDigits } from "../utils/numberWordsConverter";
 
 const INJURY_DATABASE = [
   // جراحات سر و صورت
@@ -57,8 +59,92 @@ const INJURY_DATABASE = [
 ];
 
 export default function LegalCalculators() {
-  const lawyerName = localStorage.getItem("r_lawyer_name") || "";
-  const [activeTab, setActiveTab] = useState<"age" | "mehrieh" | "diyeh" | "court" | "lawyer" | "deadlines" | "erth" | "delay_interest" | "execution_fees">("age");
+  const lawyerName = safeStorage.getItem("r_lawyer_name") || "";
+  const [activeTab, setActiveTab] = useState<"age" | "mehrieh" | "diyeh" | "court" | "lawyer" | "deadlines" | "erth" | "delay_interest" | "execution_fees" | "num_to_word" | "financial_assistant">("age");
+
+  // Convert Persian/Arabic digits from input to ASCII numbers
+  const parsePersianInput = (str: string): number => {
+    if (!str) return 0;
+    const english = str.toString().replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
+    const cleaned = english.replace(/[^0-9]/g, "");
+    return cleaned ? parseInt(cleaned) : 0;
+  };
+
+  // --- Number/Words Converter States ---
+  const [conversionDirection, setConversionDirection] = useState<"toman_to_rial" | "rial_to_toman">("toman_to_rial");
+  const [convertInput, setConvertInput] = useState<string>("");
+  const [convertResult, setConvertResult] = useState<string>("");
+  const [convertResultWords, setConvertResultWords] = useState<string>("");
+  const [numToWordResult, setNumToWordResult] = useState<any>(null);
+
+  const handleConvertNumberInput = (val: string) => {
+    // Only allow numbers and Persian numbers
+    const digits = val.replace(new RegExp("[^0-9۰-۹]", "g"), "");
+    if (!digits) {
+      setConvertInput("");
+      return;
+    }
+    
+    // Auto formatted with slashes as thousands separator
+    const formatted = formatThousandsSeparator(digits, true).replace(/,/g, '/');
+    setConvertInput(formatted);
+  };
+
+  const handleCalculateNumToWord = () => {
+    if (!convertInput) return;
+    
+    // Clean input and get only English digits
+    const digitsOnly = convertInput.replace(new RegExp("[^0-9۰-۹]", "g"), "");
+    const engDigits = persianToEnglishDigits(digitsOnly);
+    
+    if (!engDigits) return;
+
+    let result = "";
+    let words = "";
+    
+    try {
+      if (conversionDirection === "toman_to_rial") {
+          // Toman to Rial: Multiply by 10 (Add a zero)
+          result = engDigits + "0";
+          words = numberToPersianWords(result) + " ریال";
+      } else {
+          // Rial to Toman: Divide by 10 (Remove last digit)
+          if (engDigits.length <= 1) {
+              result = "0";
+          } else {
+              result = engDigits.slice(0, -1);
+          }
+          words = numberToPersianWords(result) + " تومان";
+      }
+      
+      const formattedResult = formatThousandsSeparator(result, true).replace(/,/g, '/');
+      
+      setConvertResult(formattedResult);
+      setConvertResultWords(words);
+      setNumToWordResult({
+        input: convertInput,
+        result: formattedResult,
+        words: words,
+        direction: conversionDirection
+      });
+    } catch (e) {
+      console.error("Conversion error:", e);
+      setConvertResult("");
+      setConvertResultWords("");
+      setNumToWordResult(null);
+    }
+  };
+
+  const handleConvertWordsInput = (val: string) => {
+    setConvertInput(val);
+    setConvertResult("");
+  };
+
+  const isInputNumeric = (val: string): boolean => {
+    if (!val) return false;
+    const clean = persianToEnglishDigits(val).replace(new RegExp("[^0-9]", "g"), "");
+    return clean.length > 0 && !isNaN(Number(clean));
+  };
 
   // Get current date for defaults
   const today = getCurrentJalali();
@@ -78,6 +164,98 @@ export default function LegalCalculators() {
     lunar: { years: 30, months: 11, days: 1 }
   });
   const [isAgeDropdownOpen, setIsAgeDropdownOpen] = useState<boolean>(false);
+
+  // --- Financial Assistant States ---
+  const [finAmount, setFinAmount] = useState<string>("");
+  const [finCurrency, setFinCurrency] = useState<"USD" | "TRY" | "IRR">("USD");
+  const [finRates, setFinRates] = useState({ USD: 650000, TRY: 20000 }); // Mock initial rates in Rials
+  const [finLastUpdate, setFinLastUpdate] = useState<string>("۱۴۰۳/۰۴/۰۳ ۱۰:۳۰");
+  const [finResult, setFinResult] = useState<any>(null);
+  const [isUpdatingRates, setIsUpdatingRates] = useState<boolean>(false);
+
+  const handleUpdateRates = async () => {
+    setIsUpdatingRates(true);
+    try {
+      const now = new Date();
+      const formattedTime = now.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" });
+      const jDate = getCurrentJalali();
+      const jalaliString = `${jDate.jy}/${String(jDate.jm).padStart(2, "0")}/${String(jDate.jd).padStart(2, "0")} ${formattedTime}`;
+
+      const response = await fetch("/api/currency/rates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientTime: jalaliString })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.USD && data.TRY) {
+          setFinRates({ USD: data.USD, TRY: data.TRY });
+          setFinLastUpdate(data.date || jalaliString);
+          // Recalculate if there is an amount
+          if (finAmount) {
+            const amountStr = persianToEnglishDigits(finAmount.replace(/[^\d۰-۹]/g, ""));
+            const amount = Number(amountStr);
+            if (amount) {
+              let irr = 0;
+              if (finCurrency === "USD") irr = amount * data.USD;
+              else if (finCurrency === "TRY") irr = amount * data.TRY;
+              else irr = amount;
+              const toman = Math.floor(irr / 10);
+              setFinResult({
+                amount,
+                currency: finCurrency,
+                irr,
+                toman,
+                wordsIrr: numberToPersianWords(irr.toString()) + " ریال",
+                wordsToman: numberToPersianWords(toman.toString()) + " تومان",
+                rateUsed: finCurrency === "USD" ? data.USD : finCurrency === "TRY" ? data.TRY : 1
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.log("Unable to update rates:", e);
+    } finally {
+      setIsUpdatingRates(false);
+    }
+  };
+
+  const calculateFinancial = (val: string, curr: string) => {
+    let targetCurr = curr;
+    const lowerVal = val.toLowerCase();
+    if (lowerVal.includes("usd") || lowerVal.includes("دلار")) targetCurr = "USD";
+    else if (lowerVal.includes("try") || lowerVal.includes("لیر")) targetCurr = "TRY";
+    else if (lowerVal.includes("irr") || lowerVal.includes("ریال")) targetCurr = "IRR";
+
+    const amountStr = persianToEnglishDigits(val.replace(/[^\d۰-۹]/g, ""));
+    const amount = Number(amountStr);
+    if (!amount) {
+      setFinResult(null);
+      return;
+    }
+
+    let irr = 0;
+    if (targetCurr === "USD") irr = amount * finRates.USD;
+    else if (targetCurr === "TRY") irr = amount * finRates.TRY;
+    else irr = amount;
+
+    const toman = Math.floor(irr / 10);
+    setFinResult({
+      amount,
+      currency: targetCurr,
+      irr,
+      toman,
+      wordsIrr: numberToPersianWords(irr.toString()) + " ریال",
+      wordsToman: numberToPersianWords(toman.toString()) + " تومان",
+      rateUsed: targetCurr === "USD" ? finRates.USD : targetCurr === "TRY" ? finRates.TRY : 1
+    });
+    setFinCurrency(targetCurr as any);
+  };
+
+  // --- Judicial Deadline States ---
+  const [judicialDaysInput, setJudicialDaysInput] = useState<string>("");
+  const [judicialResult, setJudicialResult] = useState<any>(null);
   const [isAgeCalendarOpen, setIsAgeCalendarOpen] = useState<boolean>(false);
   const [isAgeEndCalendarOpen, setIsAgeEndCalendarOpen] = useState<boolean>(false);
 
@@ -193,7 +371,7 @@ export default function LegalCalculators() {
 
   // --- Lawyer States ---
   const [lawyerSubject, setLawyerSubject] = useState<"fee" | "tax_stamp_bar" | "tax_stamp_center">("fee");
-  const [lawyerTaxBasis, setLawyerTaxBasis] = useState<"tariff" | "fee_amount">("tariff");
+  const [lawyerTaxBasis, setLawyerTaxBasis] = useState<"tariff" | "fee_amount" | "tax_stamp_amount">("tariff");
   const [lawyerCaseType, setLawyerCaseType] = useState<string>("financial");
   const [lawyerResultType, setLawyerResultType] = useState<string>("-");
   const [lawyerHasSpecialty, setLawyerHasSpecialty] = useState<boolean>(false);
@@ -387,14 +565,16 @@ export default function LegalCalculators() {
         if (activeTab === "mehrieh") {
           const rawAmount = parsePersianInput(mehriehAmount);
           if (rawAmount && rawAmount > 0) {
-            const res = calculateMehrieh(rawAmount, marriageYear, paymentYear);
+            const mYear = typeof marriageYear === 'string' ? Number(parsePersianInput(marriageYear)) : Number(marriageYear);
+            const pYear = typeof paymentYear === 'string' ? Number(parsePersianInput(paymentYear)) : Number(paymentYear);
+            const res = calculateMehrieh(rawAmount, mYear, pYear);
             setMehriehResult(res);
           }
         } else if (activeTab === "delay_interest") {
           const rawPrincipal = parsePersianInput(delayPrincipal);
           if (rawPrincipal && rawPrincipal > 0) {
-            const sy = typeof delayStartYear === 'string' ? parsePersianInput(delayStartYear) : delayStartYear;
-            const ey = typeof delayEndYear === 'string' ? parsePersianInput(delayEndYear) : delayEndYear;
+            const sy = Number(typeof delayStartYear === 'string' ? parsePersianInput(delayStartYear) : delayStartYear);
+            const ey = Number(typeof delayEndYear === 'string' ? parsePersianInput(delayEndYear) : delayEndYear);
             const res = calculateDelayInterest(rawPrincipal, sy, delayStartMonth, ey, delayEndMonth);
             setDelayResult(res);
           }
@@ -441,17 +621,10 @@ export default function LegalCalculators() {
     }, 500);
   };
 
-  // Convert Persian/Arabic digits from input to ASCII numbers
-  const parsePersianInput = (str: string): number => {
-    const english = str.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
-    const cleaned = english.replace(/[^0-9]/g, "");
-    return cleaned ? parseInt(cleaned) : 0;
-  };
-
   const handleCalculateMehrieh = () => {
     const rawAmount = parsePersianInput(mehriehAmount);
     if (!rawAmount || rawAmount <= 0) return;
-    const res = calculateMehrieh(rawAmount, marriageYear, paymentYear);
+    const res = calculateMehrieh(rawAmount, Number(marriageYear), Number(paymentYear));
     setMehriehResult(res);
   };
 
@@ -459,7 +632,7 @@ export default function LegalCalculators() {
     let fraction = 1.0;
     
     if (selectedMethod === "درصدی") {
-      const englishDigits = diyehPercentInput
+      const englishDigits = String(diyehPercentInput)
         .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString())
         .replace(/٫/g, ".");
       const cleaned = englishDigits.replace(/[^0-9.]/g, "");
@@ -509,7 +682,7 @@ export default function LegalCalculators() {
     // Sacred month rules normally apply to death cases only (Islamic criminal code article 555)
     const finalIsSacredMonth = (selectedMethod === "دیه قتل" || selectedMethod === "درصدی" || selectedMethod === "کسری") ? isSacredMonth : false;
 
-    const res = calculateDiyeh(diyehYear, fraction, finalIsSacredMonth);
+    const res = calculateDiyeh(Number(diyehYear), fraction, finalIsSacredMonth);
     setDiyehResult({
       ...res,
       originalMethod: selectedMethod,
@@ -527,6 +700,59 @@ export default function LegalCalculators() {
   const handleCalculateLawyer = () => {
     const rawClaim = parsePersianInput(lawyerClaimAmount);
     
+    let isTaxStamp = lawyerSubject === "tax_stamp_bar" || lawyerSubject === "tax_stamp_center";
+    let isDirectTaxInput = isTaxStamp && lawyerTaxBasis === "tax_stamp_amount";
+
+    if (isDirectTaxInput) {
+      // Direct tax stamp calculation:
+      // Entered tax stamp amount is rawClaim (representing 5% of corresponding lawyer fee)
+      // Corresponding lawyer fee is rawClaim * 20
+      const baseTariff = rawClaim * 20;
+      const bedvi = baseTariff * 0.60;
+      const tajdid = baseTariff * 0.40;
+      
+      const bedviPureTax = rawClaim * 0.60;
+      const tajdidPureTax = rawClaim * 0.40;
+      
+      const bedviTax = bedvi * 0.0875;
+      const tajdidTax = tajdid * 0.0875;
+      
+      const bedviSandogh = bedvi * 0.025;
+      const bedviKanoon = bedvi * 0.0125;
+      
+      const tajdidSandogh = tajdid * 0.025;
+      const tajdidKanoon = tajdid * 0.0125;
+      
+      const total = baseTariff;
+      const totalTax = bedviTax + tajdidTax;
+      const totalPureTax = bedviPureTax + tajdidPureTax;
+      const totalSandogh = bedviSandogh + tajdidSandogh;
+      const totalKanoon = bedviKanoon + tajdidKanoon;
+      
+      setLawyerResult({
+        bedvi: Math.round(bedvi),
+        tajdid: Math.round(tajdid),
+        total: Math.round(total),
+        bedviTax: Math.round(bedviTax),
+        tajdidTax: Math.round(tajdidTax),
+        totalTax: Math.round(totalTax),
+        bedviPureTax: Math.round(bedviPureTax),
+        tajdidPureTax: Math.round(tajdidPureTax),
+        totalPureTax: Math.round(totalPureTax),
+        bedviSandogh: Math.round(bedviSandogh),
+        bedviKanoon: Math.round(bedviKanoon),
+        tajdidSandogh: Math.round(tajdidSandogh),
+        tajdidKanoon: Math.round(tajdidKanoon),
+        totalSandogh: Math.round(totalSandogh),
+        totalKanoon: Math.round(totalKanoon),
+        isTaxStamp,
+        lawyerSubject,
+        isDirectTaxInput: true,
+        enteredTaxStamp: rawClaim,
+      });
+      return;
+    }
+
     let baseTariff = 0;
 
     if ((lawyerSubject === "tax_stamp_bar" || lawyerSubject === "tax_stamp_center") && lawyerTaxBasis === "fee_amount") {
@@ -549,11 +775,15 @@ export default function LegalCalculators() {
     let bedvi = baseTariff * 0.60;
     let tajdid = baseTariff * 0.40;
 
-    let isTaxStamp = lawyerSubject === "tax_stamp_bar" || lawyerSubject === "tax_stamp_center";
     let bedviTax = 0;
     let tajdidTax = 0;
     let bedviPureTax = 0;
     let tajdidPureTax = 0;
+
+    let bedviSandogh = 0;
+    let bedviKanoon = 0;
+    let tajdidSandogh = 0;
+    let tajdidKanoon = 0;
 
     if (isTaxStamp) {
       // 5% tax + 2.5% support fund + 1.25% bar share = 8.75%
@@ -562,11 +792,18 @@ export default function LegalCalculators() {
       // Pure 5% tax stamp
       bedviPureTax = bedvi * 0.05;
       tajdidPureTax = tajdid * 0.05;
+
+      bedviSandogh = bedvi * 0.025;
+      bedviKanoon = bedvi * 0.0125;
+      tajdidSandogh = tajdid * 0.025;
+      tajdidKanoon = tajdid * 0.0125;
     }
 
     const total = bedvi + tajdid;
     const totalTax = bedviTax + tajdidTax;
     const totalPureTax = bedviPureTax + tajdidPureTax;
+    const totalSandogh = bedviSandogh + tajdidSandogh;
+    const totalKanoon = bedviKanoon + tajdidKanoon;
 
     setLawyerResult({
        bedvi: Math.round(bedvi),
@@ -578,8 +815,15 @@ export default function LegalCalculators() {
        bedviPureTax: Math.round(bedviPureTax),
        tajdidPureTax: Math.round(tajdidPureTax),
        totalPureTax: Math.round(totalPureTax),
+       bedviSandogh: Math.round(bedviSandogh),
+       bedviKanoon: Math.round(bedviKanoon),
+       tajdidSandogh: Math.round(tajdidSandogh),
+       tajdidKanoon: Math.round(tajdidKanoon),
+       totalSandogh: Math.round(totalSandogh),
+       totalKanoon: Math.round(totalKanoon),
        isTaxStamp,
-       lawyerSubject
+       lawyerSubject,
+       isDirectTaxInput: false,
     });
   };
 
@@ -587,28 +831,41 @@ export default function LegalCalculators() {
     const jy = deadlineBaseYear ? (typeof deadlineBaseYear === 'string' ? parsePersianInput(deadlineBaseYear) : deadlineBaseYear) : today.jy;
     const jd = deadlineBaseDay ? (typeof deadlineBaseDay === 'string' ? parsePersianInput(deadlineBaseDay) : deadlineBaseDay) : today.jd;
     
+    // 1. Calculate Legal Deadline
     const selectedOption = currentDeadlineOptions.find(o => o.title === deadlineType);
-    let baseDays = selectedOption ? selectedOption.days : 20;
+    let baseDaysLegal = selectedOption ? selectedOption.days : 20;
 
-    // Apply special condition for "abroad" (مقیم خارج)
     if (deadlineIncludeAbroad) {
       if (deadlineType.includes("تجدیدنظر") || deadlineType.includes("واخواهی") || deadlineType.includes("فرجام")) {
-        baseDays = 60; // Usually 2 months for abroad
+        baseDaysLegal = 60;
       } else {
-        baseDays *= 2; // Generally doubled otherwise, adjust as needed or keep simple logic
+        baseDaysLegal *= 2;
       }
     }
 
-    const res = calculateJudicialDeadline(
+    const resLegal = calculateJudicialDeadline(
       jy,
       deadlineBaseMonth,
       jd,
-      "custom", // Passing custom so calculateJudicialDeadline uses customDays
-      baseDays,
+      "custom",
+      baseDaysLegal,
       deadlineType,
       deadlineIncludeThursdays
     );
-    setDeadlineResult(res);
+    setDeadlineResult(resLegal);
+
+    // 2. Calculate Judicial Deadline (requested + 2)
+    const judDays = Number(judicialDaysInput) || baseDaysLegal;
+    const resJudicial = calculateJudicialDeadline(
+      jy,
+      deadlineBaseMonth,
+      jd,
+      "judicial_deadline",
+      judDays,
+      "مهلت قضایی",
+      deadlineIncludeThursdays
+    );
+    setJudicialResult(resJudicial);
   };
 
   const handleCalculateErth = () => {
@@ -929,6 +1186,22 @@ export default function LegalCalculators() {
               )}
             </div>
           )}
+
+          {activeTab === "num_to_word" && (
+            <div className="space-y-3 text-xs leading-relaxed" dir="rtl">
+              <p><strong>نوع مبدل:</strong> مبدل اختصاصی عدد به حروف فارسی و بالعکس</p>
+              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-300 mt-6 space-y-4">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-extrabold block mb-1">ورودی کاربر:</span>
+                  <p className="text-sm font-black text-slate-800">{convertInput || "عنوانی وارد نشده"}</p>
+                </div>
+                <div className="pt-3 border-t border-slate-200">
+                  <span className="text-[10px] text-slate-500 font-extrabold block mb-1">خروجی محاسباتی مبدل:</span>
+                  <p className="text-base font-black text-blue-800">{convertResult || "صفحه خالی"}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="pt-24 border-t border-slate-200 flex justify-between items-end text-xs font-bold">
@@ -948,37 +1221,10 @@ export default function LegalCalculators() {
       {/* --- WEB INTERFACE LAYOUT (Hidden during print) --- */}
       <div className="print:hidden space-y-6">
         {/* Tab Navigation */}
-        <div className="flex flex-wrap gap-1.5 bg-slate-100 p-1 rounded-2xl max-w-4xl border border-slate-200 overflow-x-auto select-none">
-          <button
-            onClick={() => setActiveTab("age")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
-              activeTab === "age" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5 text-emerald-600" />
-            محاسبه سن
-          </button>
-          <button
-            onClick={() => setActiveTab("mehrieh")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
-              activeTab === "mehrieh" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            محاسبه مهریه به نرخ روز
-          </button>
-          <button
-            onClick={() => setActiveTab("diyeh")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
-              activeTab === "diyeh" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Award className="w-3.5 h-3.5" />
-            محاسبه دیه اعضا و خسارت
-          </button>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 bg-slate-100 p-2 rounded-2xl max-w-4xl border border-slate-200 select-none w-full">
           <button
             onClick={() => setActiveTab("court")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
               activeTab === "court" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
             }`}
           >
@@ -986,8 +1232,31 @@ export default function LegalCalculators() {
             هزینه دادرسی دادگاه‌ها
           </button>
           <button
+            onClick={() => {
+              setActiveTab("execution_fees");
+              if (!executionResult) {
+                setTimeout(() => handleCalculateExecutionFees(), 50);
+              }
+            }}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "execution_fees" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 font-bold" />
+            هزینه اجرای احکام
+          </button>
+          <button
+            onClick={() => setActiveTab("mehrieh")}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "mehrieh" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 text-amber-500" />
+            محاسبه مهریه به نرخ روز
+          </button>
+          <button
             onClick={() => setActiveTab("lawyer")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
               activeTab === "lawyer" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
             }`}
           >
@@ -995,29 +1264,8 @@ export default function LegalCalculators() {
             حق‌الوکاله و تمبر مالیاتی
           </button>
           <button
-            onClick={() => setActiveTab("deadlines")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
-              activeTab === "deadlines" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-            محاسبه مواعد قانونی و قضایی
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("erth");
-              // Clear previous erth results on tab switch if needed
-            }}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
-              activeTab === "erth" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Users className="w-3.5 h-3.5 text-sky-500 font-bold" />
-            محاسبه تقسیم ارث و ترکه
-          </button>
-          <button
             onClick={() => setActiveTab("delay_interest")}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
               activeTab === "delay_interest" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
             }`}
           >
@@ -1026,18 +1274,61 @@ export default function LegalCalculators() {
           </button>
           <button
             onClick={() => {
-              setActiveTab("execution_fees");
-              if (!executionResult) {
-                // Initialize clean calculation on first view
-                setTimeout(() => handleCalculateExecutionFees(), 50);
-              }
+              setActiveTab("erth");
             }}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black select-none cursor-pointer duration-150 ${
-              activeTab === "execution_fees" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "erth" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
             }`}
           >
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 font-bold" />
-            هزینه اجرای احکام
+            <Users className="w-3.5 h-3.5 text-sky-500 font-bold" />
+            محاسبه تقسیم ارث و ترکه
+          </button>
+          <button
+            onClick={() => setActiveTab("diyeh")}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "diyeh" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <Award className="w-3.5 h-3.5 text-purple-600" />
+            محاسبه دیه اعضا و خسارت
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("num_to_word");
+            }}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "num_to_word" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-blue-500 font-bold" />
+            تبدیل تومان به ریال
+          </button>
+          <button
+            onClick={() => setActiveTab("financial_assistant")}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "financial_assistant" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
+            دستیار هوشمند مالی
+          </button>
+          <button
+            onClick={() => setActiveTab("deadlines")}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "deadlines" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-500" />
+            محاسبه مواعد قانونی
+          </button>
+          <button
+            onClick={() => setActiveTab("age")}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "age" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-emerald-600" />
+            محاسبه سن
           </button>
         </div>
 
@@ -1843,7 +2134,7 @@ export default function LegalCalculators() {
                   onClick={handleCalculateCourt}
                   className="w-full py-3 bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-white rounded-xl text-xs font-black select-none cursor-pointer transition duration-150"
                 >
-                  موعدگیری فیش هزینه دادرسی
+                  محاسبه هزینه دادرسی
                 </button>
               </>
             )}
@@ -1876,118 +2167,127 @@ export default function LegalCalculators() {
                       onChange={(e) => setLawyerTaxBasis(e.target.value as any)}
                       className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
                     >
-                      <option value="tariff">تعرفه</option>
-                      <option value="fee_amount">مبلغ حق الوکاله</option>
+                      <option value="tariff">تعرفه (درصد قانونی بر مبنای بهای خواسته)</option>
+                      <option value="fee_amount">مبلغ کل حق‌الوکاله تعینی</option>
+                      <option value="tax_stamp_amount">ورود مستقیم مبلغ تمبر مالیاتی ابطالی</option>
                     </select>
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3 mt-2">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-500">نوع دعوا</label>
-                    <select
-                      value={lawyerCaseType}
-                      onChange={(e) => setLawyerCaseType(e.target.value)}
-                      className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
-                    >
-                      <option value="financial">مالی</option>
-                      <option value="family_non_financial">امور حسبی، دعاوی خانوادگی و غیرمالی</option>
-                      <option value="criminal">کیفری</option>
-                      <option value="other">سایر</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-500">نتیجه دعوا</label>
-                    <select
-                      value={lawyerResultType}
-                      onChange={(e) => setLawyerResultType(e.target.value)}
-                      className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold outline-none focus:ring-1 focus:ring-slate-900"
-                    >
-                      <option value="-">-</option>
-                      <option value="order_cancel_before_defense">قرار ابطال دادخواست پیش از پاسخ و دفاع از دعوا</option>
-                      <option value="order_cancel_after_defense">قرار ابطال دادخواست پس از پاسخ و دفاع از دعوا</option>
-                      <option value="order_fall_before_defense">قرار سقوط دعوا تجدیدنظر قبل از پاسخ و دفاع از دعوا</option>
-                      <option value="order_fall_after_defense">قرار سقوط دعوا تجدیدنظر پس از پاسخ و دفاع از دعوا</option>
-                      <option value="order_reject_timeout">قرار رد دعوا به علت قبول ایراد مرور زمان</option>
-                      <option value="order_reject_retrial">قرار رد تقاضای اعاده دادرسی</option>
-                      <option value="order_reject_res_judicata">قرار رد دعوا بعلت اعتبار امر مختومه</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 mt-3">
-                  <label className="text-[11px] font-bold text-slate-500">گواهی تخصصی</label>
-                  <select
-                    value={lawyerHasSpecialty ? "yes" : "no"}
-                    onChange={(e) => setLawyerHasSpecialty(e.target.value === "yes")}
-                    className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
-                  >
-                    <option value="no">وکیل گواهی وکالت تخصصی ندارد.</option>
-                    <option value="yes">وکیل دارای گواهی وکالت تخصصی است.</option>
-                  </select>
-                </div>
-
-                <div className="space-y-3 mt-3">
-                  <div className="space-y-1.5 border-b border-slate-100 pb-2">
-                    <label className="text-[11px] font-black text-slate-600 block">تعداد روزهای ماموریت داخل استان:</label>
-                    <input
-                      type="text"
-                      value={lawyerInsideProvinceDays}
-                      onChange={(e) => setLawyerInsideProvinceDays(toPersianDigits(e.target.value))}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 text-center"
-                      placeholder="به طور مثال: ۵"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-600 block">تعداد روزهای ماموریت خارج استان:</label>
-                    <input
-                      type="text"
-                      value={lawyerOutsideProvinceDays}
-                      onChange={(e) => setLawyerOutsideProvinceDays(toPersianDigits(e.target.value))}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 text-center"
-                      placeholder="به طور مثال: ۵"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-3 mt-3 pt-2">
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    className="flex items-center gap-3 cursor-pointer group outline-none"
-                    onClick={() => setLawyerAfterAnnulment(!lawyerAfterAnnulment)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLawyerAfterAnnulment(!lawyerAfterAnnulment); } }}
-                  >
-                    <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ease-in-out ${lawyerAfterAnnulment ? 'bg-amber-500' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-200 ease-in-out ${lawyerAfterAnnulment ? 'translate-x-4' : 'translate-x-0'}`} />
+                {lawyerTaxBasis !== "tax_stamp_amount" && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-500">نوع دعوا</label>
+                        <select
+                          value={lawyerCaseType}
+                          onChange={(e) => setLawyerCaseType(e.target.value)}
+                          className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
+                        >
+                          <option value="financial">مالی</option>
+                          <option value="family_non_financial">امور حسبی، دعاوی خانوادگی و غیرمالی</option>
+                          <option value="criminal">کیفری</option>
+                          <option value="other">سایر</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-500">نتیجه دعوا</label>
+                        <select
+                          value={lawyerResultType}
+                          onChange={(e) => setLawyerResultType(e.target.value)}
+                          className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold outline-none focus:ring-1 focus:ring-slate-900"
+                        >
+                          <option value="-">-</option>
+                          <option value="order_cancel_before_defense">قرار ابطال دادخواست پیش از پاسخ و دفاع از دعوا</option>
+                          <option value="order_cancel_after_defense">قرار ابطال دادخواست پس از پاسخ و دفاع از دعوا</option>
+                          <option value="order_fall_before_defense">قرار سقوط دعوا تجدیدنظر قبل از پاسخ و دفاع از دعوا</option>
+                          <option value="order_fall_after_defense">قرار سقوط دعوا تجدیدنظر پس از پاسخ و دفاع از دعوا</option>
+                          <option value="order_reject_timeout">قرار رد دعوا به علت قبول ایراد مرور زمان</option>
+                          <option value="order_reject_retrial">قرار رد تقاضای اعاده دادرسی</option>
+                          <option value="order_reject_res_judicata">قرار رد دعوا بعلت اعتبار امر مختومه</option>
+                        </select>
+                      </div>
                     </div>
-                    <span className="text-[11px] font-bold text-slate-700 group-hover:text-slate-900">پس از نقض در دیوانعالی کشور یا مرجع تجدیدنظر</span>
-                  </div>
 
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    className="flex items-center gap-3 cursor-pointer group outline-none"
-                    onClick={() => setLawyerFreeAid(!lawyerFreeAid)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLawyerFreeAid(!lawyerFreeAid); } }}
-                  >
-                    <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ease-in-out ${lawyerFreeAid ? 'bg-amber-500' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-200 ease-in-out ${lawyerFreeAid ? 'translate-x-4' : 'translate-x-0'}`} />
+                    <div className="space-y-1.5 mt-3">
+                      <label className="text-[11px] font-bold text-slate-500">گواهی تخصصی</label>
+                      <select
+                        value={lawyerHasSpecialty ? "yes" : "no"}
+                        onChange={(e) => setLawyerHasSpecialty(e.target.value === "yes")}
+                        className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
+                      >
+                        <option value="no">وکیل گواهی وکالت تخصصی ندارد.</option>
+                        <option value="yes">وکیل دارای گواهی وکالت تخصصی است.</option>
+                      </select>
                     </div>
-                    <span className="text-[11px] font-bold text-slate-700 group-hover:text-slate-900">وکالت تسخیری / معاضدتی</span>
-                  </div>
-                </div>
+
+                    <div className="space-y-3 mt-3">
+                      <div className="space-y-1.5 border-b border-slate-100 pb-2">
+                        <label className="text-[11px] font-black text-slate-600 block">تعداد روزهای ماموریت داخل استان:</label>
+                        <input
+                          type="text"
+                          value={lawyerInsideProvinceDays}
+                          onChange={(e) => setLawyerInsideProvinceDays(toPersianDigits(e.target.value))}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 text-center"
+                          placeholder="به طور مثال: ۵"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-black text-slate-600 block">تعداد روزهای ماموریت خارج استان:</label>
+                        <input
+                          type="text"
+                          value={lawyerOutsideProvinceDays}
+                          onChange={(e) => setLawyerOutsideProvinceDays(toPersianDigits(e.target.value))}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 text-center"
+                          placeholder="به طور مثال: ۵"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 mt-3 pt-2">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex items-center gap-3 cursor-pointer group outline-none"
+                        onClick={() => setLawyerAfterAnnulment(!lawyerAfterAnnulment)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLawyerAfterAnnulment(!lawyerAfterAnnulment); } }}
+                      >
+                        <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ease-in-out ${lawyerAfterAnnulment ? 'bg-amber-500' : 'bg-slate-300'}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-200 ease-in-out ${lawyerAfterAnnulment ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-700 group-hover:text-slate-900">پس از نقض در دیوانعالی کشور یا مرجع تجدیدنظر</span>
+                      </div>
+
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex items-center gap-3 cursor-pointer group outline-none"
+                        onClick={() => setLawyerFreeAid(!lawyerFreeAid)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLawyerFreeAid(!lawyerFreeAid); } }}
+                      >
+                        <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ease-in-out ${lawyerFreeAid ? 'bg-amber-500' : 'bg-slate-300'}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-200 ease-in-out ${lawyerFreeAid ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-700 group-hover:text-slate-900">وکالت تسخیری / معاضدتی</span>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div className="space-y-1.5 mt-3 pt-3 border-t border-slate-100">
                   <label className="text-[11px] font-bold text-slate-500">
-                    {lawyerTaxBasis === "fee_amount" ? "مبلغ حق‌الوکاله (ریال)" : "بهای خواسته / مبلغ (ریال)"}
+                    {lawyerTaxBasis === "fee_amount" 
+                      ? "مبلغ حق‌الوکاله (ریال)" 
+                      : lawyerTaxBasis === "tax_stamp_amount"
+                      ? "مبلغ ابطالی تمبر مالیاتی مستقیم (ریال)"
+                      : "بهای خواسته / مبلغ (ریال)"}
                   </label>
                   <input
                     type="text"
                     value={lawyerClaimAmount}
                     onChange={(e) => handleAmountFormat(e.target.value, setLawyerClaimAmount)}
                     className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black outline-none focus:ring-1 focus:ring-slate-900 text-left dir-ltr"
-                    placeholder="مثلاً: ۲,۵۰۰,۰۰۰,۰۰۰"
+                    placeholder={lawyerTaxBasis === "tax_stamp_amount" ? "مثلاً: ۴۳۵,۰۰۰,۰۰۰" : "مثلاً: ۲,۵۰۰,۰۰۰,۰۰۰"}
                   />
                 </div>
 
@@ -2020,17 +2320,38 @@ export default function LegalCalculators() {
                   </select>
                 </div>
 
-                <div className="space-y-1.5 mt-2">
-                  <label className="text-[11px] font-bold text-slate-500">نوع مهلت</label>
-                  <select
-                    value={deadlineType}
-                    onChange={(e) => setDeadlineType(e.target.value)}
-                    className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 appearance-none"
-                  >
-                    {currentDeadlineOptions.map((opt) => (
-                      <option key={opt.title} value={opt.title}>{opt.title}</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-500">نوع مهلت قانونی</label>
+                    <select
+                      value={deadlineType}
+                      onChange={(e) => {
+                        setDeadlineType(e.target.value);
+                        setJudicialDaysInput("");
+                      }}
+                      className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 appearance-none"
+                    >
+                      {currentDeadlineOptions.map((opt) => (
+                        <option key={opt.title} value={opt.title}>{opt.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-500 text-amber-600">مهلت قضایی (سفارشی)</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="عدد روز ..."
+                        value={judicialDaysInput}
+                        onChange={(e) => {
+                          const val = toEnglishDigits(e.target.value).replace(/\D/g, "");
+                          setJudicialDaysInput(val);
+                          if (val) setDeadlineType("judicial_deadline_custom");
+                        }}
+                        className="w-full px-2 py-3 bg-white border border-amber-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-amber-500 text-center"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-1.5 mt-2">
@@ -2903,6 +3224,151 @@ export default function LegalCalculators() {
               </>
             )}
 
+            {activeTab === "financial_assistant" && (
+              <>
+                <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 mb-4">
+                  <TrendingUp className="w-5 h-5 text-blue-600 shrink-0" />
+                  دستیار هوشمند محاسبات مالی
+                </h3>
+
+                <div className="space-y-4 pt-1">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-slate-600 block">انتخاب ارز</label>
+                    <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 gap-1 select-none">
+                      {(["USD", "TRY", "IRR"] as const).map((curr) => (
+                        <button
+                          key={curr}
+                          type="button"
+                          onClick={() => setFinCurrency(curr)}
+                          className={`flex-1 py-2 rounded-xl text-xs font-black transition-all cursor-pointer text-center ${
+                            finCurrency === curr
+                              ? "bg-slate-900 text-white shadow-sm"
+                              : "text-slate-500 hover:bg-slate-200"
+                          }`}
+                        >
+                          {curr === "USD" ? "دلار آمریکا" : curr === "TRY" ? "لیر ترکیه" : "ریال ایران"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold text-slate-600 block">مبلغ ورودی</label>
+                    <div className="relative group">
+                      <input
+                        type="text"
+                        value={finAmount}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFinAmount(val);
+                        }}
+                        placeholder={`مثلاً: ۱۰ ${finCurrency === "USD" ? "USD" : finCurrency === "TRY" ? "TRY" : "ریال"}`}
+                        className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-850 outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-right"
+                      />
+                      <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-blue-50 rounded-2xl border border-blue-100 space-y-2">
+                    <button
+                      type="button"
+                      onClick={handleUpdateRates}
+                      disabled={isUpdatingRates}
+                      className="w-full flex justify-between items-center text-[10px] text-blue-800 font-bold cursor-pointer hover:bg-blue-100/50 p-2 rounded-xl transition-all select-none border-none outline-none text-right"
+                      title="کلیک کنید تا قیمت‌ها مطابق با تاریخ و زمان گوشی از سایت‌های معتبر بروزرسانی شوند"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingRates ? "animate-spin text-emerald-600" : "animate-spin-slow text-blue-600"}`} />
+                        <span className="underline decoration-dotted underline-offset-4">آخرین بروزرسانی نرخ ارز (لمس برای بروزرسانی آنلاین):</span>
+                      </div>
+                      <span className="font-mono bg-blue-100 px-1.5 py-0.5 rounded text-blue-900 shrink-0">
+                        {isUpdatingRates ? "در حال دریافت..." : finLastUpdate}
+                      </span>
+                    </button>
+                    <div className="grid grid-cols-2 gap-2 text-[10px] font-black">
+                      <div className="bg-white/60 p-2 rounded-lg text-center text-slate-600">دلار: {formatPersianCurrency(finRates.USD)}</div>
+                      <div className="bg-white/60 p-2 rounded-lg text-center text-slate-600">لیر: {formatPersianCurrency(finRates.TRY)}</div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => calculateFinancial(finAmount, finCurrency)}
+                    className="w-full mt-2 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black select-none cursor-pointer transition duration-150 shadow-lg shadow-blue-600/20 active:scale-[0.98]"
+                  >
+                    محاسبه و تبدیل ارز
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeTab === "num_to_word" && (
+              <>
+                <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 mb-4">
+                  تبدیل تومان به ریال و بالعکس
+                </h3>
+
+                <div className="space-y-4 pt-1">
+                  {/* Mode Selector Toggle */}
+                  <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 gap-1 select-none">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConversionDirection("toman_to_rial");
+                        setConvertInput("");
+                        setConvertResult("");
+                        setConvertResultWords("");
+                        setNumToWordResult(null);
+                      }}
+                      className={`flex-1 py-1.5 rounded-xl text-[10px] font-black transition-all cursor-pointer text-center ${
+                        conversionDirection === "toman_to_rial"
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "text-slate-500 hover:bg-slate-200"
+                      }`}
+                    >
+                      تبدیل تومان به ریال
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConversionDirection("rial_to_toman");
+                        setConvertInput("");
+                        setConvertResult("");
+                        setConvertResultWords("");
+                        setNumToWordResult(null);
+                      }}
+                      className={`flex-1 py-1.5 rounded-xl text-[10px] font-black transition-all cursor-pointer text-center ${
+                        conversionDirection === "rial_to_toman"
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "text-slate-500 hover:bg-slate-200"
+                      }`}
+                    >
+                      تبدیل ریال به تومان
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={convertInput}
+                        onChange={(e) => handleConvertNumberInput(e.target.value)}
+                        placeholder={conversionDirection === "toman_to_rial" ? "مبلغ به تومان" : "مبلغ به ریال"}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-850 outline-none focus:ring-1 focus:ring-blue-600 focus:bg-white transition-all text-right"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleCalculateNumToWord}
+                    className="w-full mt-2 py-3 bg-slate-900 hover:bg-blue-600 hover:text-white text-white rounded-xl text-xs font-black select-none cursor-pointer transition duration-150"
+                  >
+                    محاسبه و تبدیل
+                  </button>
+                  
+                </div>
+              </>
+            )}
+
           </div>
 
           {/* Right Output results Card */}
@@ -2921,7 +3387,7 @@ export default function LegalCalculators() {
                       {/* Solar Age Card */}
                       <div className="border border-emerald-205 border-emerald-200 rounded-3xl overflow-hidden shadow-emerald-50/50 shadow-sm bg-white">
                         <div className="bg-emerald-50 px-5 py-4 border-b border-emerald-200 flex items-center justify-between">
-                          <span className="text-sm font-black text-emerald-990 text-emerald-800">
+                          <span className="text-sm font-black text-emerald-800">
                             {ageSubject === "age" ? "سن شمسی" : "اختلاف زمانی شمسی"}
                           </span>
                         </div>
@@ -2960,6 +3426,8 @@ export default function LegalCalculators() {
                 </div>
               )}
 
+              {/* 1.5 NUM_TO_WORD RESULT */}
+
               {/* 1. MEHRIEH RECEIPT */}
               {activeTab === "mehrieh" && !mehriehResult && (
                 <div className="py-12 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-2">
@@ -2982,7 +3450,7 @@ export default function LegalCalculators() {
                       <span className="font-mono text-slate-900 font-extrabold">{toPersianDigits(mehriehResult.marriageIndex)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>شاخص تورمی سال قبل از تادیه ({toPersianDigits(paymentYear - 1)}):</span>
+                      <span>شاخص تورمی سال قبل از تادیه ({toPersianDigits((Number(paymentYear) - 1).toString())}):</span>
                       <span className="font-mono text-slate-900 font-extrabold">{toPersianDigits(mehriehResult.paymentIndex)}</span>
                     </div>
                     <div className="flex justify-between border-t border-slate-100 pt-2 text-slate-800">
@@ -3118,6 +3586,39 @@ export default function LegalCalculators() {
                 </div>
               )}
 
+              {/* 10. NUM_TO_WORD RECEIPT */}
+              {activeTab === "num_to_word" && !numToWordResult && (
+                <div className="py-12 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-2 animate-fadeIn" dir="rtl">
+                  <RefreshCw className="w-8 h-8 text-slate-350 stroke-1" />
+                  <span>جهت تبدیل مبلغ به ریال و تومان و مشاهده معادل حروفی، روی دکمه محاسبه کلیک کنید.</span>
+                </div>
+              )}
+              {activeTab === "num_to_word" && numToWordResult && (
+                <div className="py-2 space-y-5 animate-fadeIn text-right font-bold" dir="rtl">
+                  <div className="flex items-center gap-2 text-blue-800 bg-blue-50/70 p-3 rounded-xl border border-blue-100 text-xs text-right animate-fadeIn">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-blue-600" />
+                    <span>تبدیل واحد پولی با موفقیت انجام شد.</span>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-6">
+                    <div className="space-y-2">
+                      <span className="text-[10px] text-slate-400 font-extrabold block">مبلغ ورودی ({numToWordResult.direction === "toman_to_rial" ? "تومان" : "ریال"}):</span>
+                      <p className="text-lg font-black text-slate-700 tracking-tight">{toPersianDigits(numToWordResult.input)} {numToWordResult.direction === "toman_to_rial" ? "تومان" : "ریال"}</p>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100 space-y-2">
+                      <span className="text-[10px] text-slate-400 font-extrabold block">خروجی تبدیل شده ({numToWordResult.direction === "toman_to_rial" ? "ریال" : "تومان"}):</span>
+                      <p className="text-2xl font-black text-blue-600 tracking-tight">{toPersianDigits(numToWordResult.result)} {numToWordResult.direction === "toman_to_rial" ? "ریال" : "تومان"}</p>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100 space-y-2">
+                      <span className="text-[10px] text-slate-400 font-extrabold block">معادل حروفی مبلغ خروجی:</span>
+                      <p className="text-sm font-black text-slate-800 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">{toPersianDigits(numToWordResult.words)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 3. COURT RECEIPT */}
               {activeTab === "court" && !courtResult && (
                 <div className="py-12 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-2">
@@ -3194,6 +3695,123 @@ export default function LegalCalculators() {
                           </span>
                         </div>
                       </div>
+                    ) : lawyerResult.isDirectTaxInput ? (
+                      <div className="space-y-4 font-bold">
+                        {/* Direct Tax Calculation Box / کادر محاسباتی مستقیم */}
+                        <div className="bg-amber-50/50 border border-amber-200 rounded-2xl p-4 text-xs shadow-sm space-y-3">
+                          <div className="flex items-center gap-2 text-amber-800 font-extrabold pb-2 border-b border-amber-100">
+                            <Calculator className="w-4 h-4 text-amber-600" />
+                            <span>کادر محاسباتی مستقیم بر مبنای مبلغ تمبر مالیاتی</span>
+                          </div>
+
+                          <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-amber-100">
+                            <span className="text-slate-700">مبلغ ابطال تمبر مالیاتی ورودی (۵٪):</span>
+                            <span className="text-amber-900 font-black font-mono text-sm">
+                              {formatPersianCurrency(lawyerResult.enteredTaxStamp)}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
+                            <div>
+                              <span className="text-slate-700">سهم صندوق حمایت وکلا (۲.۵٪):</span>
+                              <span className="text-[10px] text-slate-400 block font-normal">(معادل نصف مبلغ تمبر مالیاتی ورودی)</span>
+                            </div>
+                            <span className="text-slate-900 font-black font-mono text-sm">
+                              {formatPersianCurrency(Math.round(lawyerResult.enteredTaxStamp * 0.5))}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100 font-bold">
+                            <div>
+                              <span className="text-slate-700">
+                                {lawyerResult.lawyerSubject === "tax_stamp_bar" 
+                                  ? "سهم کانون وکلای دادگستری (۱.۲۵٪):" 
+                                  : "سهم مرکز وکلای قوه قضاییه (۱.۲۵٪):"}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block font-normal">(معادل یک چهارم مبلغ تمبر مالیاتی ورودی)</span>
+                            </div>
+                            <span className="text-slate-900 font-black font-mono text-sm">
+                              {formatPersianCurrency(Math.round(lawyerResult.enteredTaxStamp * 0.25))}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between items-center bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+                            <div>
+                              <span className="text-emerald-800 font-extrabold">مجموع تمبر مالیاتی و سهم صندوق و کانون (۸.۷۵٪):</span>
+                              <span className="text-[10px] text-emerald-600 block font-normal">(شامل تمبر مالیاتی + سهم صندوق + سهم کانون/مرکز)</span>
+                            </div>
+                            <span className="text-emerald-950 font-black font-mono text-base">
+                              {formatPersianCurrency(Math.round(lawyerResult.enteredTaxStamp * 1.75))}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between items-center bg-blue-50 p-3 rounded-xl border border-blue-100">
+                            <div>
+                              <span className="text-blue-800 font-extrabold">حق‌الوکاله معادل و متناظر (۱۰۰٪):</span>
+                              <span className="text-[10px] text-blue-600 block font-normal">(مبنای محاسبه ۲۰ برابر مبلغ تمبر مالیاتی ابطال شده)</span>
+                            </div>
+                            <span className="text-blue-900 font-black font-mono text-base">
+                              {formatPersianCurrency(Math.round(lawyerResult.enteredTaxStamp * 20))}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Traditional Stages breakdown for comparison/clarification */}
+                        <div className="bg-white border border-slate-200 rounded-xl text-xs shadow-sm overflow-hidden opacity-90">
+                          <div className="bg-slate-500 text-white px-4 py-2 w-max rounded-bl-3xl min-w-[50%]">
+                            تسهیم فرضی مراحل (۶۰٪ بدوی و ۴۰٪ تجدیدنظر)
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div className="flex justify-between">
+                              <span className="text-slate-600">حق‌الوکاله سهم بدوی (۶۰٪):</span>
+                              <span className="font-mono text-slate-800">{formatPersianCurrency(lawyerResult.bedvi)}</span>
+                            </div>
+                            <div className="flex justify-between border-t border-slate-100 pt-2">
+                              <span className="text-slate-600">تمبر خالص بدوی (۵٪):</span>
+                              <span className="font-mono text-emerald-800">{formatPersianCurrency(lawyerResult.bedviPureTax)}</span>
+                            </div>
+                            <div className="border-t border-slate-100 pt-2 space-y-1 text-[11px] text-slate-500 font-semibold">
+                              <div className="flex justify-between">
+                                <span>سهم صندوق حمایت بدوی (۲.۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.bedviSandogh || Math.round(lawyerResult.bedvi * 0.025))}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>سهم {lawyerResult.lawyerSubject === "tax_stamp_bar" ? "کانون" : "مرکز"} بدوی (۱.۲۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.bedviKanoon || Math.round(lawyerResult.bedvi * 0.0125))}</span>
+                              </div>
+                            </div>
+                            <div className="flex justify-between border-t border-slate-100 pt-2">
+                              <span className="text-slate-800 font-bold">تمبر مالیاتی، سهم صندوق و {lawyerResult.lawyerSubject === "tax_stamp_bar" ? "کانون" : "مرکز"} بدوی:</span>
+                              <span className="font-mono text-slate-700 font-bold">{formatPersianCurrency(lawyerResult.bedviTax)}</span>
+                            </div>
+
+                            <div className="border-t-2 border-dashed border-slate-100 my-2" />
+
+                            <div className="flex justify-between">
+                              <span className="text-slate-600">حق‌الوکاله سهم تجدیدنظر (۴۰٪):</span>
+                              <span className="font-mono text-slate-800">{formatPersianCurrency(lawyerResult.tajdid)}</span>
+                            </div>
+                            <div className="flex justify-between border-t border-slate-100 pt-2">
+                              <span className="text-slate-600">تمبر خالص تجدیدنظر (۵٪):</span>
+                              <span className="font-mono text-emerald-800">{formatPersianCurrency(lawyerResult.tajdidPureTax)}</span>
+                            </div>
+                            <div className="border-t border-slate-100 pt-2 space-y-1 text-[11px] text-slate-500 font-semibold">
+                              <div className="flex justify-between">
+                                <span>سهم صندوق حمایت تجدیدنظر (۲.۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.tajdidSandogh || Math.round(lawyerResult.tajdid * 0.025))}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>سهم {lawyerResult.lawyerSubject === "tax_stamp_bar" ? "کانون" : "مرکز"} تجدیدنظر (۱.۲۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.tajdidKanoon || Math.round(lawyerResult.tajdid * 0.0125))}</span>
+                              </div>
+                            </div>
+                            <div className="flex justify-between border-t border-slate-100 pt-2">
+                              <span className="text-slate-800 font-bold">تمبر مالیاتی، سهم صندوق و {lawyerResult.lawyerSubject === "tax_stamp_bar" ? "کانون" : "مرکز"} تجدیدنظر:</span>
+                              <span className="font-mono text-slate-700 font-bold">{formatPersianCurrency(lawyerResult.tajdidTax)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
                       <div className="space-y-4 font-bold">
                         <div className="bg-white border border-slate-200 rounded-xl text-xs shadow-sm overflow-hidden">
@@ -3209,9 +3827,19 @@ export default function LegalCalculators() {
                               <div className="text-emerald-700 font-extrabold">مبلغ ابطال تمبر مالیاتی:</div>
                               <div className="text-left font-mono mt-1 text-emerald-800 font-black">{formatPersianCurrency(lawyerResult.bedviPureTax)}</div>
                             </div>
+                            <div className="border-t border-slate-100 pt-3 space-y-1 text-[11px] text-slate-500 font-semibold">
+                              <div className="flex justify-between">
+                                <span>سهم صندوق حمایت (۲.۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.bedviSandogh || Math.round(lawyerResult.bedvi * 0.025))}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>سهم {lawyerResult.lawyerSubject === "tax_stamp_bar" ? "کانون" : "مرکز"} وکلا (۱.۲۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.bedviKanoon || Math.round(lawyerResult.bedvi * 0.0125))}</span>
+                              </div>
+                            </div>
                             <div className="border-t border-slate-100 pt-3">
-                              <div className="text-slate-800">{lawyerResult.lawyerSubject === "tax_stamp_bar" ? "تمبر مالیاتی، سهم صندوق و کانون:" : "تمبر مالیاتی، سهم صندوق و مرکز:"}</div>
-                              <div className="text-left font-mono mt-1 text-slate-600">{formatPersianCurrency(lawyerResult.bedviTax)}</div>
+                              <div className="text-slate-800 font-bold">{lawyerResult.lawyerSubject === "tax_stamp_bar" ? "جمع تمبر مالیاتی، سهم صندوق و کانون:" : "جمع تمبر مالیاتی، سهم صندوق و مرکز:"}</div>
+                              <div className="text-left font-mono mt-1 text-slate-900 font-black">{formatPersianCurrency(lawyerResult.bedviTax)}</div>
                             </div>
                           </div>
                         </div>
@@ -3229,9 +3857,19 @@ export default function LegalCalculators() {
                               <div className="text-emerald-700 font-extrabold">مبلغ ابطال تمبر مالیاتی:</div>
                               <div className="text-left font-mono mt-1 text-emerald-800 font-black">{formatPersianCurrency(lawyerResult.tajdidPureTax)}</div>
                             </div>
+                            <div className="border-t border-slate-100 pt-3 space-y-1 text-[11px] text-slate-500 font-semibold">
+                              <div className="flex justify-between">
+                                <span>سهم صندوق حمایت (۲.۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.tajdidSandogh || Math.round(lawyerResult.tajdid * 0.025))}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>سهم {lawyerResult.lawyerSubject === "tax_stamp_bar" ? "کانون" : "مرکز"} وکلا (۱.۲۵٪):</span>
+                                <span className="font-mono">{formatPersianCurrency(lawyerResult.tajdidKanoon || Math.round(lawyerResult.tajdid * 0.0125))}</span>
+                              </div>
+                            </div>
                             <div className="border-t border-slate-100 pt-3">
-                              <div className="text-slate-800">{lawyerResult.lawyerSubject === "tax_stamp_bar" ? "تمبر مالیاتی، سهم صندوق و کانون:" : "تمبر مالیاتی، سهم صندوق و مرکز:"}</div>
-                              <div className="text-left font-mono mt-1 text-slate-600">{formatPersianCurrency(lawyerResult.tajdidTax)}</div>
+                              <div className="text-slate-800 font-bold">{lawyerResult.lawyerSubject === "tax_stamp_bar" ? "جمع تمبر مالیاتی، سهم صندوق و کانون:" : "جمع تمبر مالیاتی، سهم صندوق و مرکز:"}</div>
+                              <div className="text-left font-mono mt-1 text-slate-900 font-black">{formatPersianCurrency(lawyerResult.tajdidTax)}</div>
                             </div>
                           </div>
                         </div>
@@ -3241,13 +3879,23 @@ export default function LegalCalculators() {
                             مبلغ ابطال تمبر مالیاتی (کل):
                             <div className="text-left text-emerald-800 font-mono text-sm mt-1">{formatPersianCurrency(lawyerResult.totalPureTax)}</div>
                           </div>
+                          <div className="border-t border-slate-100 pt-3 space-y-1 text-xs text-slate-500 font-semibold">
+                            <div className="flex justify-between">
+                              <span>جمع کل سهم صندوق حمایت (۲.۵٪):</span>
+                              <span className="font-mono text-slate-850 font-bold">{formatPersianCurrency(lawyerResult.totalSandogh || Math.round(lawyerResult.total * 0.025))}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>جمع کل سهم {lawyerResult.lawyerSubject === "tax_stamp_bar" ? "کانون" : "مرکز"} وکلا (۱.۲۵٪):</span>
+                              <span className="font-mono text-slate-850 font-bold">{formatPersianCurrency(lawyerResult.totalKanoon || Math.round(lawyerResult.total * 0.0125))}</span>
+                            </div>
+                          </div>
                           <div className="text-blue-600 border-t border-slate-100 pt-3">
                             جمع کل پرداخت تمبر در مرحله بدوی و تجدید نظر (شامل سهم صندوق و کانون):
-                            <div className="text-left text-slate-700 font-mono text-sm mt-1">{formatPersianCurrency(lawyerResult.totalTax)}</div>
+                            <div className="text-left text-slate-705 font-mono text-sm mt-1">{formatPersianCurrency(lawyerResult.totalTax)}</div>
                           </div>
                           <div className="text-blue-600 border-t border-slate-100 pt-3">
                             جمع کل حق الوکاله:
-                            <div className="text-left text-slate-700 font-mono text-sm mt-1">{formatPersianCurrency(lawyerResult.total)}</div>
+                            <div className="text-left text-slate-705 font-mono text-sm mt-1">{formatPersianCurrency(lawyerResult.total)}</div>
                           </div>
                         </div>
                       </div>
@@ -3256,7 +3904,57 @@ export default function LegalCalculators() {
                 </div>
               )}
 
-              {/* 5. DEADLINE RECEIPT */}
+              {/* 5. FINANCIAL ASSISTANT RECEIPT */}
+              {activeTab === "financial_assistant" && !finResult && (
+                <div className="py-20 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-4 animate-in fade-in">
+                  <TrendingUp className="w-12 h-12 text-blue-100" />
+                  <div className="max-w-[200px]">مبلغ مورد نظر را وارد کرده و دکمه محاسبه را بزنید تا معادل ریالی و تومانی آن را مشاهده کنید.</div>
+                </div>
+              )}
+              {activeTab === "financial_assistant" && finResult && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+                      <DollarSign className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black text-blue-600 mb-0.5">مبلغ ورودی ارز</div>
+                      <div className="text-sm font-black text-blue-900 font-mono">
+                        {toPersianDigits(formatThousandsSeparator(finResult.amount.toString()))} {finResult.currency}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+                      <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                        <span className="text-[11px] font-black text-slate-500">معادل به ریال ایران:</span>
+                        <span className="text-base font-black text-slate-900 font-mono">{formatPersianCurrency(finResult.irr)}</span>
+                      </div>
+                      <div className="text-[11px] font-bold text-slate-400 leading-relaxed text-right">
+                        {finResult.wordsIrr}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-xl space-y-3 border border-slate-800">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <span className="text-[11px] font-black text-slate-400">معادل به تومان (رایج):</span>
+                        <span className="text-base font-black text-emerald-400 font-mono">{formatPersianCurrency(finResult.toman)}</span>
+                      </div>
+                      <div className="text-[11px] font-bold text-slate-300 leading-relaxed text-right">
+                        {finResult.wordsToman}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                    <span>نرخ محاسبه شده:</span>
+                    <span className="font-mono text-slate-700">{formatPersianCurrency(finResult.rateUsed)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* 6. DEADLINE RECEIPT */}
               {activeTab === "deadlines" && !deadlineResult && (
                 <div className="py-12 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-2">
                   <Clock className="w-8 h-8 text-slate-350 stroke-1" />
@@ -3267,32 +3965,69 @@ export default function LegalCalculators() {
                 <div className="py-2 space-y-4 animate-fadeIn">
                   <div className="flex items-center gap-2 text-green-700 bg-green-50 p-3 rounded-xl border border-green-100 text-xs">
                     <CheckCircle2 className="w-4 h-4 shrink-0 animate-pulse" />
-                    <span>مواعید قانونی ابلاغ فوق به تاریخ دقیق جلالی مشخص گردید.</span>
+                    <span>مواعید قانونی و قضایی با موفقیت محاسبه گردید.</span>
                   </div>
 
-                  <h3 className="text-xs font-black text-slate-800 bg-slate-50 p-2 rounded">مقررات دادرسی حاکم بر مهلت (ماده ۴۴۵):</h3>
+                  <div className={judicialDaysInput ? "max-w-md mx-auto w-full" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
+                    {/* Legal Deadline Box - Shown only if no custom judicial deadline is entered */}
+                    {!judicialDaysInput && (
+                      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                        <div className="bg-slate-800 text-white px-4 py-3 text-xs font-black flex items-center gap-2">
+                          <Award className="w-4 h-4 text-amber-400" />
+                          مهلت قانونی
+                        </div>
+                        <div className="p-4 flex-1 space-y-3">
+                          <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                            <span>عنوان:</span>
+                            <span className="text-slate-900 truncate max-w-[120px] font-black">{deadlineResult.typeName}</span>
+                          </div>
+                          <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                            <span>مدت:</span>
+                            <span className="text-slate-900 font-black">{toPersianDigits(deadlineResult.daysCount)} روز</span>
+                          </div>
+                          <div className="pt-2 border-t border-slate-50">
+                            <div className="text-[9px] font-black text-slate-400 mb-1">آخرین مهلت قانونی:</div>
+                            <div className="text-sm font-black text-slate-900 font-mono text-left">{toPersianDigits(deadlineResult.endDate)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-                  <div className="space-y-2 text-xs text-slate-650 font-bold leading-relaxed">
-                    <div className="flex justify-between">
-                      <span>نوع فرجه قضایی مورد واکاوی:</span>
-                      <span className="font-extrabold text-slate-900">{deadlineResult.typeName}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>تعداد کل مهلت مقرر قانونی:</span>
-                      <span className="font-bold text-slate-900">{toPersianDigits(deadlineResult.daysCount)} روز کامل</span>
-                    </div>
-                    <div className="flex justify-between border-t border-slate-100 pt-2">
-                      <span>تاریخ ابلاغیه اصلی (روز صفر):</span>
-                      <span className="font-mono text-slate-900">{toPersianDigits(`${deadlineBaseYear}/${deadlineBaseMonth}/${deadlineBaseDay}`)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>آغاز شمارش رسمی زمان (روز اول مادی):</span>
-                      <span className="font-mono text-slate-850 font-bold">{toPersianDigits(deadlineResult.startDate)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>آخرین روز فرجه قانونی شمارش شده:</span>
-                      <span className="font-mono text-slate-850 font-black text-sm text-red-500">{toPersianDigits(deadlineResult.endDate)}</span>
-                    </div>
+                    {/* Judicial Deadline Box - Shown only if custom judicial deadline is entered */}
+                    {judicialResult && judicialDaysInput && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                        <div className="bg-amber-600 text-white px-4 py-3 text-xs font-black flex items-center gap-2">
+                          <Clock className="w-4 h-4" />
+                          مهلت قضایی (با احتساب ۲ روز)
+                        </div>
+                        <div className="p-4 flex-1 space-y-3">
+                          <div className="flex justify-between text-[10px] font-bold text-amber-800">
+                            <span>مدت خالص:</span>
+                            <span className="text-amber-950 font-black">{toPersianDigits(judicialResult.daysCount - 2)} روز</span>
+                          </div>
+                          <div className="flex justify-between text-[10px] font-bold text-amber-800">
+                            <span>مدت با ارفاق:</span>
+                            <span className="text-amber-950 font-black">{toPersianDigits(judicialResult.daysCount)} روز</span>
+                          </div>
+                          <div className="pt-2 border-t border-amber-200/50">
+                            <div className="text-[9px] font-black text-amber-700/60 mb-1">آخرین مهلت قضایی:</div>
+                            <div className="text-sm font-black text-red-600 font-mono text-left">{toPersianDigits(judicialResult.endDate)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                     <h4 className="text-[10px] font-black text-slate-800">جزئیات مواعد:</h4>
+                     <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                       <span>تاریخ ابلاغ (روز صفر):</span>
+                       <span className="font-mono">{toPersianDigits(`${deadlineBaseYear}/${deadlineBaseMonth}/${deadlineBaseDay}`)}</span>
+                     </div>
+                     <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                       <span>آغاز شمارش (روز اول):</span>
+                       <span className="font-mono text-slate-800">{toPersianDigits(deadlineResult.startDate)}</span>
+                     </div>
                   </div>
                 </div>
               )}
@@ -3546,15 +4281,16 @@ export default function LegalCalculators() {
               </div>
             )}
 
-          {(ageResult || mehriehResult || diyehResult || courtResult || lawyerResult || deadlineResult || erthResult || delayResult || executionResult) && (
+
+          {(ageResult || mehriehResult || diyehResult || courtResult || lawyerResult || deadlineResult || erthResult || delayResult || executionResult || numToWordResult) && (
             <div className="border-t border-slate-100 pt-4 flex gap-2">
-              <button
-                onClick={triggerPrint}
-                className="flex-1 py-3 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-950 text-slate-700 rounded-xl text-xs font-black select-none cursor-pointer flex items-center justify-center gap-2 transition duration-150"
-              >
-                <Printer className="w-4 h-4 text-emerald-600" />
-                چاپ و ذخیره PDF
-              </button>
+                <button
+                  onClick={triggerPrint}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-950 text-slate-700 rounded-xl text-xs font-black select-none cursor-pointer flex items-center justify-center gap-2 transition duration-150"
+                >
+                  <Printer className="w-4 h-4 text-emerald-600" />
+                  چاپ و ذخیره PDF
+                </button>
             </div>
           )}
           </div>

@@ -1,0 +1,17 @@
+{
+  "name": "سامانه مدیریت وکالت رضا پورمحمد",
+  "short_name": "وکالت پورمحمد",
+  "description": "سامانه مدیریت پرونده‌ها و تقویم وقت‌های دادرسی رضا پورمحمد",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1e293b",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

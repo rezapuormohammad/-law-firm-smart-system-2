@@ -175,8 +175,9 @@ export function toPersianDigits(num: number | string): string {
  * Converts Persian digits to English digits.
  */
 export function toEnglishDigits(str: string): string {
+  if (!str) return "";
   const persianDigits = [/۰/g, /۱/g, /۲/g, /۳/g, /۴/g, /۵/g, /۶/g, /۷/g, /۸/g, /۹/g];
-  let result = str;
+  let result = str.toString();
   for (let i = 0; i < 10; i++) {
     result = result.replace(persianDigits[i], i.toString());
   }

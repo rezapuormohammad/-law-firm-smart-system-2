@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import React, { useState, useEffect } from "react";
 import {
   Shield,
@@ -91,7 +92,7 @@ export default function BackupSecurityHub({
 
   useEffect(() => {
     // Check if cloud backup slot exists
-    const cloudRaw = localStorage.getItem("r_cloud_backup_slot");
+    const cloudRaw = safeStorage.getItem("r_cloud_backup_slot");
     if (cloudRaw) {
       try {
         const parsed = JSON.parse(cloudRaw);
@@ -231,7 +232,7 @@ export default function BackupSecurityHub({
         docsCount: documents.length,
         eventsCount: events.length
       };
-      localStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify(meta));
+      safeStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify(meta));
 
       setCloudBackupExists(true);
       setCloudBackupMeta(meta);
@@ -298,7 +299,7 @@ export default function BackupSecurityHub({
 
   useEffect(() => {
     if (user) {
-      const savedMeta = localStorage.getItem(`r_cloud_backup_meta_${user.uid}`);
+      const savedMeta = safeStorage.getItem(`r_cloud_backup_meta_${user.uid}`);
       if (savedMeta) {
         setCloudBackupMeta(JSON.parse(savedMeta));
         setCloudBackupExists(true);

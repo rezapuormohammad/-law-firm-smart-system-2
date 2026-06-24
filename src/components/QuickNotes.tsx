@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import React, { useState, useEffect } from "react";
 import { Save, FileText, CheckCircle2, Plus, Trash2, Edit, ChevronRight, Eye, Calendar, Clock } from "lucide-react";
 import { toPersianDigits } from "../utils/shamsi";
@@ -17,12 +18,12 @@ export default function QuickNotes() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("r_quick_notes_v2");
+      const saved = safeStorage.getItem("r_quick_notes_v2");
       if (saved) {
         setNotes(JSON.parse(saved));
       } else {
         // Migration from old single note version
-        const oldNote = localStorage.getItem("r_quick_notes");
+        const oldNote = safeStorage.getItem("r_quick_notes");
         if (oldNote && oldNote.trim() !== "") {
           const newNote: Note = {
             id: Date.now().toString(),
@@ -31,8 +32,8 @@ export default function QuickNotes() {
             updatedAt: Date.now()
           };
           setNotes([newNote]);
-          localStorage.setItem("r_quick_notes_v2", JSON.stringify([newNote]));
-          localStorage.removeItem("r_quick_notes");
+          safeStorage.setItem("r_quick_notes_v2", JSON.stringify([newNote]));
+          safeStorage.removeItem("r_quick_notes");
         }
       }
     } catch (e) {
@@ -42,7 +43,7 @@ export default function QuickNotes() {
 
   const handleSaveNotes = (updatedNotes: Note[]) => {
     setNotes(updatedNotes);
-    localStorage.setItem("r_quick_notes_v2", JSON.stringify(updatedNotes));
+    safeStorage.setItem("r_quick_notes_v2", JSON.stringify(updatedNotes));
   };
 
   const createNote = () => {

@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Sparkles, AlertCircle, RefreshCw, Paperclip } from "lucide-react";
 
@@ -7,12 +8,12 @@ interface Message {
 }
 
 export default function AIAssistant() {
-  const [lawyerPhoto, setLawyerPhoto] = useState(() => localStorage.getItem("r_lawyer_photo") || "");
-  const [lawyerName, setLawyerName] = useState(() => localStorage.getItem("r_lawyer_name") || "وکیل مسئول");
+  const [lawyerPhoto, setLawyerPhoto] = useState(() => safeStorage.getItem("r_lawyer_photo") || "");
+  const [lawyerName, setLawyerName] = useState(() => safeStorage.getItem("r_lawyer_name") || "وکیل مسئول");
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `با سلام من ${localStorage.getItem("r_lawyer_name") || "وکیل مسئول"} هستم چطور میتونم در مسائل حقوقی کمکتان بکنم؟`
+      content: `با سلام من ${safeStorage.getItem("r_lawyer_name") || "وکیل مسئول"} هستم چطور میتونم در مسائل حقوقی کمکتان بکنم؟`
     }
   ]);
   const [input, setInput] = useState("");

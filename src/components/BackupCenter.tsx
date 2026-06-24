@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import React, { useState, useEffect } from "react";
 import { PublicClientApplication } from "@azure/msal-browser";
 import {
@@ -241,7 +242,7 @@ export default function BackupCenter({
   useEffect(() => {
     if (user) {
       // 1. Set immediately from localStorage if present
-      const savedMeta = localStorage.getItem(`r_cloud_backup_meta_${user.uid}`);
+      const savedMeta = safeStorage.getItem(`r_cloud_backup_meta_${user.uid}`);
       if (savedMeta) {
         try {
           setCloudBackupMeta(JSON.parse(savedMeta));
@@ -283,7 +284,7 @@ export default function BackupCenter({
             };
             setCloudBackupMeta(meta);
             setCloudBackupExists(true);
-            localStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify(meta));
+            safeStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify(meta));
           } else {
             setCloudBackupExists(false);
             setCloudBackupMeta(null);
@@ -467,13 +468,13 @@ export default function BackupCenter({
       };
 
       try {
-        localStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify(meta));
+        safeStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify(meta));
       } catch (metaErr) {
         console.warn("Could not save cloud backup metadata to localStorage:", metaErr);
       }
 
       try {
-        localStorage.setItem("r_cloud_backup_slot", JSON.stringify({
+        safeStorage.setItem("r_cloud_backup_slot", JSON.stringify({
           backupDateShort: persianDate,
           clients,
           cases,
@@ -485,7 +486,7 @@ export default function BackupCenter({
         console.warn("Could not save full cloud backup cache to localStorage due to quota limit:", slotErr);
         // Fallback to storing a skeleton object so existing checks for this slot still succeed
         try {
-          localStorage.setItem("r_cloud_backup_slot", JSON.stringify({
+          safeStorage.setItem("r_cloud_backup_slot", JSON.stringify({
             backupDateShort: persianDate,
             clients: [],
             cases: [],

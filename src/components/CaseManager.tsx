@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import React, { useState, useEffect } from "react";
 import { Client, LegalCase, CaseNote, CaseDocument, CaseStage, CaseStatus, ClientPartyRole } from "../types";
 import { toPersianDigits, toEnglishDigits, formatDateWithSlash } from "../utils/shamsi";
@@ -88,7 +89,7 @@ export default function CaseManager({
   onUpdateDocumentList,
   defaultSubTab = "cases"
 }: CaseManagerProps) {
-  const lawyerName = localStorage.getItem("r_lawyer_name") || "";
+  const lawyerName = safeStorage.getItem("r_lawyer_name") || "";
   // Tabs: "cases" | "closedCases" | "clients"
   const [subTab, setSubTab] = useState<"cases" | "closedCases" | "clients">(defaultSubTab);
   
@@ -1139,6 +1140,33 @@ export default function CaseManager({
         )}
       </div>
 
+      <div className="flex items-center justify-end gap-2 mb-4">
+        {subTab === "cases" && (
+          <button
+            onClick={() => {
+              setEditingCase(null);
+              setShowCaseForm(true);
+            }}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-850 text-white rounded-xl text-[10px] font-black transition flex items-center gap-2 shadow-sm cursor-pointer select-none"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            ثبت پرونده جدید
+          </button>
+        )}
+        {subTab === "clients" && (
+          <button
+            onClick={() => {
+              setEditingClient(null);
+              setShowClientForm(true);
+            }}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-850 text-white rounded-xl text-[10px] font-black transition flex items-center gap-2 shadow-sm cursor-pointer select-none"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            افزودن موکل جدید
+          </button>
+        )}
+      </div>
+
       {clients.length === 0 && (subTab === "cases" || subTab === "closedCases") && (
         <div className="p-4 bg-amber-50 text-amber-900 text-xs border border-amber-200 rounded-xl flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
@@ -1266,7 +1294,7 @@ export default function CaseManager({
                               setCaseSanaPassword(c.sanaPassword || "");
                               setCaseTotalContractAmount(c.totalContractAmount ? c.totalContractAmount.toString() : "");
                               setCaseDownPayment(c.downPayment ? c.downPayment.toString() : "");
-                              setCasePayments(c.payments?.map(p => ({ ...p, amount: p.amount.toString() })) || []);
+                              setCasePayments(c.payments?.map(p => ({ ...p, amount: p.amount.toString(), cardNumber: p.cardNumber || "" })) || []);
                               setCaseInstallments(c.installments?.map(i => ({ ...i, amount: i.amount.toString() })) || []);
                               setCaseAssociatedPersons(c.associatedPersons || []);
                               setCaseFormStep(1);
@@ -2702,7 +2730,7 @@ export default function CaseManager({
                     </div>
                   </div>
                 </object>
-              ) : previewDoc.type === "audio" || previewDoc.dataUrl?.startsWith("data:audio/") || previewDoc.dataUrl?.startsWith("blob:") && previewDoc.type === "audio" ? (
+              ) : (previewDoc.type as string) === "audio" || previewDoc.dataUrl?.startsWith("data:audio/") || previewDoc.dataUrl?.startsWith("blob:") && (previewDoc.type as string) === "audio" ? (
                 <div className="flex flex-col items-center justify-center w-full max-w-md p-8 bg-slate-900 rounded-3xl border border-slate-800 shadow-2xl space-y-6">
                   <div className="w-20 h-20 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center shadow-[0_0_30px_rgba(99,102,241,0.15)] mx-auto relative overflow-hidden">
                     <div className="absolute inset-0 bg-indigo-500/20 blur-xl animate-pulse"></div>

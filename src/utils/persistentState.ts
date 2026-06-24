@@ -1,3 +1,4 @@
+import { safeStorage } from "../utils/safeStorage";
 import { Client, LegalCase, CaseNote, CaseDocument, LegalEvent } from "../types";
 
 // Seed realistic Farsi Legal Data for immediate premium layout
@@ -230,19 +231,19 @@ const INITIAL_EVENTS: LegalEvent[] = [
  * Storage Loaders
  */
 export function loadAllData() {
-  const clients = localStorage.getItem("r_clients");
-  const cases = localStorage.getItem("r_cases");
-  const notes = localStorage.getItem("r_notes");
-  const documents = localStorage.getItem("r_documents");
-  const events = localStorage.getItem("r_events");
+  const clients = safeStorage.getItem("r_clients");
+  const cases = safeStorage.getItem("r_cases");
+  const notes = safeStorage.getItem("r_notes");
+  const documents = safeStorage.getItem("r_documents");
+  const events = safeStorage.getItem("r_events");
 
   if (!clients) {
     // Write defaults
-    localStorage.setItem("r_clients", JSON.stringify(INITIAL_CLIENTS));
-    localStorage.setItem("r_cases", JSON.stringify(INITIAL_CASES));
-    localStorage.setItem("r_notes", JSON.stringify(INITIAL_NOTES));
-    localStorage.setItem("r_documents", JSON.stringify(INITIAL_DOCUMENTS));
-    localStorage.setItem("r_events", JSON.stringify(INITIAL_EVENTS));
+    safeStorage.setItem("r_clients", JSON.stringify(INITIAL_CLIENTS));
+    safeStorage.setItem("r_cases", JSON.stringify(INITIAL_CASES));
+    safeStorage.setItem("r_notes", JSON.stringify(INITIAL_NOTES));
+    safeStorage.setItem("r_documents", JSON.stringify(INITIAL_DOCUMENTS));
+    safeStorage.setItem("r_events", JSON.stringify(INITIAL_EVENTS));
 
     return {
       clients: INITIAL_CLIENTS,
@@ -315,5 +316,5 @@ export function loadAllData() {
  * Storage Savers
  */
 export function saveData(key: string, data: any) {
-  localStorage.setItem(key, JSON.stringify(data));
+  safeStorage.setItem(key, JSON.stringify(data));
 }

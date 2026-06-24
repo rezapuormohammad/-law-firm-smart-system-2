@@ -1,3 +1,4 @@
+import { safeStorage } from "./utils/safeStorage";
 import React, { useState, useEffect } from "react";
 import { loadAllData, saveData } from "./utils/persistentState";
 import { Client, LegalCase, CaseNote, CaseDocument, LegalEvent } from "./types";
@@ -71,7 +72,7 @@ export default function App() {
 
   // Alarms Fired Registry (to prevent double-firing in the same minute)
   const [firedAlarms, setFiredAlarms] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem("r_fired_alarms");
+    const saved = safeStorage.getItem("r_fired_alarms");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -86,7 +87,7 @@ export default function App() {
 
   // Sync firedAlarms to localStorage
   useEffect(() => {
-    localStorage.setItem("r_fired_alarms", JSON.stringify(Array.from(firedAlarms)));
+    safeStorage.setItem("r_fired_alarms", JSON.stringify(Array.from(firedAlarms)));
   }, [firedAlarms]);
 
   // Synchronize Tab History for robust "Back" button functionality
@@ -215,19 +216,25 @@ export default function App() {
           triggerPoints.push({ id: `${ev.id}_final_${ev.jalaliDate}`, date: ev.jalaliDate, time: ev.time, label: "موعد نهایی رویداد" });
           
           // 2. 1 Hour Before
-          if (dev.alarm1Hour) {
+          if (dev.alarm1Hour && ev.time) {
             const [h, m] = toEnglishDigits(ev.time).split(":").map(Number);
             const targetH = h === 0 ? 23 : h - 1;
-            triggerPoints.push({ id: `${ev.id}_1h_${ev.jalaliDate}`, date: ev.jalaliDate, time: `${pad(targetH)}:${pad(m)}`, label: "۱ ساعت قبل" });
+            triggerPoints.push({ id: `${ev.id}_1h_${ev.jalaliDate}`, date: ev.jalaliDate, time: `${pad(targetH)}:${pad(m || 0)}`, label: "۱ ساعت قبل" });
           }
 
           // 3. Days Before
           const addPoint = (days: number, tag: string, label: string) => {
-            const [y, m, d] = toEnglishDigits(ev.jalaliDate).split("/").map(Number);
-            const targetDate = addDaysToJalali(y, m, d, -days);
-            const targetDateStr = formatJalaliDate(targetDate.jy, targetDate.jm, targetDate.jd);
-            triggerPoints.push({ id: `${ev.id}_${tag}_${targetDateStr}`, date: targetDateStr, time: ev.time, label });
+            if (!ev.jalaliDate) return;
+            const parts = toEnglishDigits(ev.jalaliDate).split("/").map(Number);
+            if (parts.length < 3) return;
+            const [y, m, d] = parts;
+            try {
+              const targetDate = addDaysToJalali(y, m, d, -days);
+              const targetDateStr = formatJalaliDate(targetDate.jy, targetDate.jm, targetDate.jd);
+              triggerPoints.push({ id: `${ev.id}_${tag}_${targetDateStr}`, date: targetDateStr, time: ev.time, label });
+            } catch(e) {}
           };
+
 
           if (dev.alarm1Day) addPoint(1, "1d", "۲۴ ساعت قبل");
           if (dev.alarm3Days) addPoint(3, "3d", "۳ روز قبل");
@@ -236,14 +243,16 @@ export default function App() {
 
         // Execute triggers
         triggerPoints.forEach(pt => {
-          const normalizeDate = (d: string) => {
+          const normalizeDate = (d?: string) => {
+            if (!d) return d;
             const parts = toEnglishDigits(d).split("/");
             if (parts.length === 3) {
               return `${parts[0]}/${parts[1].padStart(2, "0")}/${parts[2].padStart(2, "0")}`;
             }
             return d;
           };
-          const normalizeTime = (t: string) => {
+          const normalizeTime = (t?: string) => {
+            if (!t) return t;
             const parts = toEnglishDigits(t).split(":");
             if (parts.length === 2) {
               return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}`;
@@ -292,11 +301,11 @@ export default function App() {
   }, [events, firedAlarms]);
 
   // --- LAWYER SECURITY PROFILE STATES ---
-  const [lawyerName, setLawyerName] = useState(() => localStorage.getItem("r_lawyer_name") || "");
-  const [lawyerNationalId, setLawyerNationalId] = useState(() => localStorage.getItem("r_lawyer_national_id") || "");
-  const [lawyerPassword, setLawyerPassword] = useState(() => localStorage.getItem("r_lawyer_password") || "");
-  const [lawyerPhoto, setLawyerPhoto] = useState(() => localStorage.getItem("r_lawyer_photo") || "");
-  const [isRegistered, setIsRegistered] = useState(() => localStorage.getItem("r_lawyer_registered") === "true");
+  const [lawyerName, setLawyerName] = useState(() => safeStorage.getItem("r_lawyer_name") || "");
+  const [lawyerNationalId, setLawyerNationalId] = useState(() => safeStorage.getItem("r_lawyer_national_id") || "");
+  const [lawyerPassword, setLawyerPassword] = useState(() => safeStorage.getItem("r_lawyer_password") || "");
+  const [lawyerPhoto, setLawyerPhoto] = useState(() => safeStorage.getItem("r_lawyer_photo") || "");
+  const [isRegistered, setIsRegistered] = useState(() => safeStorage.getItem("r_lawyer_registered") === "true");
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   // Dynamic Imam Quote displayed inside the app workspace environment
@@ -359,7 +368,7 @@ export default function App() {
             // so we should NOT write/sync this empty state to the cloud during logout, which would delete their pristine cloud backup!
             const localIsEmpty = clients.length === 0 && cases.length === 0;
             if (localIsEmpty) {
-              const savedMeta = localStorage.getItem(`r_cloud_backup_meta_${user.uid}`);
+              const savedMeta = safeStorage.getItem(`r_cloud_backup_meta_${user.uid}`);
               if (savedMeta) {
                 console.log("Safeguarded cloud backup from being overwritten by empty local state during logout.");
                 setIsAuthorized(false);
@@ -383,7 +392,7 @@ export default function App() {
             });
             const persianDate = new Date().toLocaleDateString("fa-IR");
             try {
-              localStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify({
+              safeStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify({
                 date: persianDate,
                 clientsCount: clients.length,
                 casesCount: cases.length,
@@ -396,7 +405,7 @@ export default function App() {
             }
 
             try {
-              localStorage.setItem("r_cloud_backup_slot", JSON.stringify({
+              safeStorage.setItem("r_cloud_backup_slot", JSON.stringify({
                 backupDateShort: persianDate,
                 clients,
                 cases,
@@ -408,7 +417,7 @@ export default function App() {
               console.warn("Could not save full cloud backup cache to localStorage due to quota limit:", slotErr);
               // Fallback to storing a skeleton object so existing checks for this slot still succeed
               try {
-                localStorage.setItem("r_cloud_backup_slot", JSON.stringify({
+                safeStorage.setItem("r_cloud_backup_slot", JSON.stringify({
                   backupDateShort: persianDate,
                   clients: [],
                   cases: [],
@@ -693,13 +702,13 @@ export default function App() {
     setLawyerPassword(pass);
     if (photo !== undefined) {
       setLawyerPhoto(photo);
-      localStorage.setItem("r_lawyer_photo", photo);
+      safeStorage.setItem("r_lawyer_photo", photo);
     }
     setIsRegistered(true);
-    localStorage.setItem("r_lawyer_name", name);
-    localStorage.setItem("r_lawyer_national_id", nationalId);
-    localStorage.setItem("r_lawyer_password", pass);
-    localStorage.setItem("r_lawyer_registered", "true");
+    safeStorage.setItem("r_lawyer_name", name);
+    safeStorage.setItem("r_lawyer_national_id", nationalId);
+    safeStorage.setItem("r_lawyer_password", pass);
+    safeStorage.setItem("r_lawyer_registered", "true");
   };
 
   const handleTriggerRestoreData = async (parsed: any) => {
