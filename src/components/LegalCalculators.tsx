@@ -599,19 +599,47 @@ export default function LegalCalculators() {
     let fraction = 1.0;
     
     if (selectedMethod === "درصدی") {
-      const englishDigits = String(diyehPercentInput)
-        .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString())
-        .replace(/٫/g, ".");
-      const cleaned = englishDigits.replace(/[^0-9.]/g, "");
-      const pct = parseFloat(cleaned);
-      fraction = isNaN(pct) ? 1.0 : pct / 100;
+      let pct = 0;
+      let input = toEnglishDigits(String(diyehPercentInput)).replace(/٫/g, ".");
+      
+      const slashCount = (input.match(/\//g) || []).length;
+      if (slashCount === 2) {
+        // Handle "1/5/1000" which means "1.5/1000"
+        input = input.replace(/\//, ".");
+      }
+
+      if (input.includes('/')) {
+        const parts = input.split('/');
+        const num = parseFloat(parts[0].replace(/[^0-9.]/g, ""));
+        const den = parseFloat(parts[1].replace(/[^0-9.]/g, ""));
+        pct = (den === 0 || isNaN(den)) ? 0 : (num / den) * 100;
+      } else {
+        const cleaned = input.replace(/[^0-9.]/g, "");
+        pct = parseFloat(cleaned);
+      }
+      
+      // Handle special recurring decimals exactly
+      if (Math.abs(pct - 66.6666) < 0.001 || Math.abs(pct - 66.6667) < 0.001 || Math.abs(pct - 66.66) < 0.001) {
+        fraction = 2 / 3;
+      } else if (Math.abs(pct - 33.3333) < 0.001 || Math.abs(pct - 33.33) < 0.001) {
+        fraction = 1 / 3;
+      } else {
+        fraction = isNaN(pct) ? 1.0 : pct / 100;
+      }
     } else if (selectedMethod === "کسری") {
       let product = 1.0;
       let hasValid = false;
-      fractionInputs.forEach(input => {
-        const trimmed = input.trim();
+      fractionInputs.forEach(fractionInput => {
+        const trimmed = fractionInput.trim();
         if (trimmed) {
-          const english = toEnglishDigits(trimmed);
+          let english = toEnglishDigits(trimmed).replace(/٫/g, ".");
+          
+          const slashCount = (english.match(/\//g) || []).length;
+          if (slashCount === 2) {
+            // Handle "1/5/1000" which means "1.5/1000"
+            english = english.replace(/\//, ".");
+          }
+
           const parts = english.split("/");
           if (parts.length === 1) {
             const val = parseFloat(parts[0].replace(/[^0-9.]/g, ""));
@@ -647,12 +675,12 @@ export default function LegalCalculators() {
       if (found) fraction = found.percentage / 100;
     } else if (selectedMethod === "اعضا، منافع، جراحات") {
       const totalPct = selectedInjuries.reduce((sum, injury) => sum + injury.percentage, 0);
-      if (Math.abs(totalPct - 66.6666) < 0.1) {
-        fraction = 2 / 3;
-      } else if (Math.abs(totalPct - 33.3333) < 0.1) {
-        fraction = 1 / 3;
+      let fractionRaw = totalPct / 100;
+      // Resolve float precision for multiples of 1/3 (e.g. 33.3333% -> 1/3, 66.6666% -> 2/3, 133.3333% -> 4/3, etc.)
+      if (Math.abs(fractionRaw - Math.round(fractionRaw * 3) / 3) < 0.0001) {
+        fraction = Math.round(fractionRaw * 3) / 3;
       } else {
-        fraction = totalPct / 100;
+        fraction = fractionRaw;
       }
     }
 
