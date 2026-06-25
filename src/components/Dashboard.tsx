@@ -84,6 +84,60 @@ export default function Dashboard({
   const upcomingRemindersCount = (events || []).filter(e => e && e.type !== "جلسه دادرسی").filter(ev => ev && !ev.isArchived && !isEventExpired(ev.jalaliDate, ev.time, 5, ev.endRepeatDate)).length;
 
   const [quickNotesCount, setQuickNotesCount] = useState<number>(0);
+  const [calendarEvents, setCalendarEvents] = useState<{description: string, is_holiday: boolean}[]>(() => {
+    try {
+      const cached = safeStorage.getItem(`cal_events_${today.jy}_${today.jm}_${today.jd}`);
+      if (cached) return JSON.parse(cached);
+    } catch(e) {}
+    return [];
+  });
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+
+  useEffect(() => {
+    const cacheKey = `cal_events_${today.jy}_${today.jm}_${today.jd}`;
+    if (calendarEvents.length > 0) return; // Already loaded from cache
+
+    let isMounted = true;
+    const fetchEvents = async () => {
+      try {
+        setIsLoadingEvents(true);
+        const response = await fetch(`https://holidayapi.ir/jalali/${today.jy}/${today.jm}/${today.jd}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.events && Array.isArray(data.events) && isMounted) {
+            const parsedEvents = data.events.map((e: any) => ({
+              description: e.description || (typeof e === "string" ? e : ""),
+              is_holiday: !!e.is_holiday
+            })).filter((e: any) => e.description);
+            setCalendarEvents(parsedEvents);
+            safeStorage.setItem(cacheKey, JSON.stringify(parsedEvents));
+            return;
+          }
+        }
+        
+        const fcResponse = await fetch('https://farsicalendar.com/api/sh,ca');
+        if (fcResponse.ok) {
+          const fcData = await fcResponse.json();
+          let events: any[] = [];
+          if (fcData.sh && Array.isArray(fcData.sh.events)) events = [...events, ...fcData.sh.events];
+          if (fcData.ca && Array.isArray(fcData.ca.events)) events = [...events, ...fcData.ca.events];
+          if (isMounted) {
+            const parsedEvents = events.map(e => ({ description: e.description || (typeof e === "string" ? e : ""), is_holiday: !!e.is_holiday })).filter((e: any) => e.description);
+            setCalendarEvents(parsedEvents);
+            if (parsedEvents.length > 0) {
+              safeStorage.setItem(cacheKey, JSON.stringify(parsedEvents));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch calendar events", err);
+      } finally {
+        if (isMounted) setIsLoadingEvents(false);
+      }
+    };
+    fetchEvents();
+    return () => { isMounted = false; };
+  }, [today.jy, today.jm, today.jd]);
 
   useEffect(() => {
     try {
@@ -456,6 +510,23 @@ export default function Dashboard({
               </div>
               <div className="text-2xl sm:text-3xl md:text-[32px] font-black text-cyan-600 tracking-tight">
                 {todayDateString}
+              </div>
+              
+              {/* Calendar Events (Bade Saba style) */}
+              <div className="w-full max-w-lg mt-2 flex flex-col items-center justify-center gap-2 font-sans min-h-[30px]">
+                {isLoadingEvents ? (
+                  <div className="flex gap-1 items-center opacity-50">
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                ) : calendarEvents.length > 0 ? (
+                  calendarEvents.map((ev, i) => (
+                    <div key={i} className={`text-sm font-semibold text-center leading-relaxed ${ev.is_holiday ? "text-rose-600" : "text-slate-600"}`}>
+                      {ev.description}
+                    </div>
+                  ))
+                ) : null}
               </div>
             </div>
           </div>

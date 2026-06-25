@@ -15,48 +15,7 @@ import {
 import { Calculator, Award, Calendar, DollarSign, FileText, Printer, CheckCircle2, AlertCircle, Clock, Search, Lock, ChevronDown, Check, Info, ArrowLeft, Plus, Trash2, Globe, RefreshCw, Users, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
 import { numberToPersianWords, persianWordsToNumber, formatThousandsSeparator, persianToEnglishDigits, englishToPersianDigits } from "../utils/numberWordsConverter";
 
-const INJURY_DATABASE = [
-  // جراحات سر و صورت
-  { id: "h1", category: "جراحات سر و صورت", name: "حارصه (خراش پوست بدون جریان خون - ۱٪)", percentage: 1 },
-  { id: "h2", category: "جراحات سر و صورت", name: "دامیه (زخم با جریان خون کم - ۲٪)", percentage: 2 },
-  { id: "h3", category: "جراحات سر و صورت", name: "metlahameh (بریدگی عمیق گوشت - ۳٪)", percentage: 3 },
-  { id: "h4", category: "جراحات سر و صورت", name: "سمحاق (جراحت مماس بر غشای استخوان - ۴٪)", percentage: 4 },
-  { id: "h5", category: "جراحات سر و صورت", name: "موضحه (جراحتی که استخوان را نمایان کند - ۵٪)", percentage: 5 },
-  { id: "h6", category: "جراحات سر و صورت", name: "هاشمه (شکستن استخوان سر و صورت بدون جابجایی - ۱۰٪)", percentage: 10 },
-  { id: "h7", category: "جراحات سر و صورت", name: "منقله (شکستگی با جابجایی استخوان - ۱۵٪)", percentage: 15 },
-  { id: "h8", category: "جراحات سر و صورت", name: "مامومه (جراحت منتهی به کیسه مغز - ۳۳٪)", percentage: 33 },
-  { id: "h9", category: "جراحات سر و صورت", name: "دامغه (جراحت با پارگی کیسه مغز - ۳۳٪ + ارش)", percentage: 33.3 },
-  { id: "h10", category: "جراحات سر و صورت", name: "جائفه (جراحت نفوذی به قفسه سینه یا شکم - ۳۳.۳٪)", percentage: 33.3 },
-  // اعضای بدن
-  { id: "a1", category: "اعضای بدن", name: "بریدن یک دست کامل تا مچ (۵۰٪)", percentage: 50 },
-  { id: "a2", category: "اعضای بدن", name: "بریدن هر دو دست کامل (۱۰۰٪)", percentage: 100 },
-  { id: "a3", category: "اعضای بدن", name: "قطع یک پا کامل تا مچ (۵۰٪)", percentage: 50 },
-  { id: "a4", category: "اعضای بدن", name: "قطع هر دو پا کامل (۱۰۰٪)", percentage: 100 },
-  { id: "a5", category: "اعضای بدن", name: "نابینا کردن یا تخلیه یک چشم (۵۰٪)", percentage: 50 },
-  { id: "a6", category: "اعضای بدن", name: "نابینا کردن یا تخلیه هر دو چشم (۱۰۰٪)", percentage: 100 },
-  { id: "a7", category: "اعضای بدن", name: "بینی (قطع کامل بینی یا جرم آن - ۱۰۰٪)", percentage: 100 },
-  { id: "a8", category: "اعضای بدن", name: "قطع کامل یک لاله گوش (۲۵٪)", percentage: 25 },
-  { id: "a9", category: "اعضای بدن", name: "قطع هر دو لاله گوش (۵۰٪)", percentage: 50 },
-  { id: "a10", category: "اعضای بدن", name: "یک دندان پیشین (۵٪)", percentage: 5 },
-  { id: "a11", category: "اعضای بدن", name: "یک دندان خلفی (۲.۵٪)", percentage: 2.5 },
-  { id: "a12", category: "اعضای بدن", name: "قطع یک بیضه (۵۰٪)", percentage: 50 },
-  { id: "a13", category: "اعضای بدن", name: "قطع هر دو بیضه (۱۰۰٪)", percentage: 100 },
-  // منافع و حواس
-  { id: "m1", category: "منافع و حواس", name: "زوال کامل عقل (۱۰۰٪)", percentage: 100 },
-  { id: "m2", category: "منافع و حواس", name: "ابطال کامل حس بویایی (۱۰۰٪)", percentage: 100 },
-  { id: "m3", category: "منافع و حواس", name: "ابطال کامل شنوایی هر دو گوش (۱۰۰٪)", percentage: 100 },
-  { id: "m4", category: "منافع و حواس", name: "ابطال کامل بینایی هر دو چشم (۱۰۰٪)", percentage: 100 },
-  { id: "m5", category: "منافع و حواس", name: "زوال قدرت گویایی و سخت گفتن (۱۰۰٪)", percentage: 100 },
-  { id: "m6", category: "منافع و حواس", name: "ارش نقص شدید زیبایی و تقارن چهره (۱۰٪)", percentage: 10 },
-  // جنین
-  { id: "j1", category: "جنین", name: "نطفه قرار گرفته در رحم (۲٪)", percentage: 2 },
-  { id: "j2", category: "جنین", name: "علقه - خون بسته متمایل به شکل (۴٪)", percentage: 4 },
-  { id: "j3", category: "جنین", name: "مضغه - گوشت پدیدار شده (۶٪)", percentage: 6 },
-  { id: "j4", category: "جنین", name: "عظام - رویش استخوان ابتدایی (۸٪)", percentage: 8 },
-  { id: "j5", category: "جنین", name: "جنین کامل بدون روح متمایز (۱۰٪)", percentage: 10 },
-  { id: "j6", category: "جنین", name: "جنین پسر دارای روح (۱۰۰٪)", percentage: 100 },
-  { id: "j7", category: "جنین", name: "جنین دختر دارای روح (۵۰٪)", percentage: 50 }
-];
+import { INJURY_DATABASE } from "../data/injuryDatabase";
 
 export default function LegalCalculators() {
   const lawyerName = safeStorage.getItem("r_lawyer_name") || "";
@@ -101,12 +60,14 @@ export default function LegalCalculators() {
 
     let result = "";
     let words = "";
+    let wordsInput = "";
     
     try {
       if (conversionDirection === "toman_to_rial") {
           // Toman to Rial: Multiply by 10 (Add a zero)
           result = engDigits + "0";
           words = numberToPersianWords(result) + " ریال";
+          wordsInput = numberToPersianWords(engDigits) + " تومان";
       } else {
           // Rial to Toman: Divide by 10 (Remove last digit)
           if (engDigits.length <= 1) {
@@ -115,6 +76,7 @@ export default function LegalCalculators() {
               result = engDigits.slice(0, -1);
           }
           words = numberToPersianWords(result) + " تومان";
+          wordsInput = numberToPersianWords(engDigits) + " ریال";
       }
       
       const formattedResult = formatThousandsSeparator(result, true).replace(/,/g, '/');
@@ -125,6 +87,7 @@ export default function LegalCalculators() {
         input: convertInput,
         result: formattedResult,
         words: words,
+        wordsInput: wordsInput,
         direction: conversionDirection
       });
     } catch (e) {
@@ -360,9 +323,13 @@ export default function LegalCalculators() {
   const [diyehFractionDenominator, setDiyehFractionDenominator] = useState<string>("۲");
   const [fractionInputs, setFractionInputs] = useState<string[]>(["", ""]);
   const [activeFractionIndex, setActiveFractionIndex] = useState<number | null>(null);
-  const [murderType, setMurderType] = useState<string>("man_full");
+  const [murderType, setMurderType] = useState<string>("man");
   const [murderCount, setMurderCount] = useState<string>("۱");
+  const [fetusSelection, setFetusSelection] = useState<string>("j1");
+  const [corpseSelection, setCorpseSelection] = useState<string>("d1");
   const [selectedInjuries, setSelectedInjuries] = useState<any[]>([]);
+  const [injurySearchText, setInjurySearchText] = useState<string>("");
+  const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>("فصل اول: جراحات سر و صورت (ماده ۷۰۹)");
 
   // --- Court Fee States ---
   const [claimAmountForCourt, setClaimAmountForCourt] = useState<string>("۵۰۰۰۰۰۰۰۰"); // 500 Million Rial
@@ -666,17 +633,27 @@ export default function LegalCalculators() {
       const countEng = murderCount.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
       const count = parseFloat(countEng.replace(/[^0-9.]/g, "")) || 1;
       let baseFactor = 1.0;
-      if (murderType === "woman_half") {
+      if (murderType === "woman" || murderType === "hermaphrodite_woman") {
         baseFactor = 0.5;
-      } else if (murderType === "woman_equalized") {
-        baseFactor = 1.0;
-      } else if (murderType === "minority_full") {
-        baseFactor = 1.0;
+      } else if (murderType === "hermaphrodite_ambiguous") {
+        baseFactor = 0.75;
       }
       fraction = baseFactor * count;
-    } else if (selectedMethod === "اعضا، منافع، جراحات و جنین" || selectedMethod === "اعضا، منافع، جراحات و جنین") {
+    } else if (selectedMethod === "جنین") {
+      const found = INJURY_DATABASE.find(item => item.id === fetusSelection);
+      if (found) fraction = found.percentage / 100;
+    } else if (selectedMethod === "جنایت بر میت") {
+      const found = INJURY_DATABASE.find(item => item.id === corpseSelection);
+      if (found) fraction = found.percentage / 100;
+    } else if (selectedMethod === "اعضا، منافع، جراحات") {
       const totalPct = selectedInjuries.reduce((sum, injury) => sum + injury.percentage, 0);
-      fraction = totalPct / 100;
+      if (Math.abs(totalPct - 66.6666) < 0.1) {
+        fraction = 2 / 3;
+      } else if (Math.abs(totalPct - 33.3333) < 0.1) {
+        fraction = 1 / 3;
+      } else {
+        fraction = totalPct / 100;
+      }
     }
 
     // Sacred month rules normally apply to death cases only (Islamic criminal code article 555)
@@ -1651,6 +1628,97 @@ export default function LegalCalculators() {
                   <div className="w-5"></div>
                 </div>
 
+                {/* 🔍 نوار جستجوی اختصاصی دیات */}
+                <div className="bg-slate-50 border border-slate-100 rounded-3xl p-4 mb-4 space-y-2 relative" dir="rtl">
+                  <label className="text-xs font-black text-slate-800 flex justify-start gap-1.5 items-center">
+                    <Search className="w-4 h-4 text-[#0ea5e9] shrink-0" />
+                    جستجوی سریع جراحات و مواد قانونی
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={injurySearchText}
+                      onChange={(e) => setInjurySearchText(e.target.value)}
+                      placeholder="نام عضو (مثلاً: بینی، چشم، دندان) یا شماره ماده (مثلاً: ۷۰۹)"
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-right outline-none focus:border-[#0ea5e9] focus:ring-1 focus:ring-[#0ea5e9] shadow-sm"
+                    />
+                    <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5 pointer-events-none" />
+                    {injurySearchText && (
+                      <button
+                        onClick={() => setInjurySearchText("")}
+                        className="absolute left-3.5 top-3 text-slate-400 hover:text-slate-600 font-sans text-sm select-none cursor-pointer p-1"
+                        type="button"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold text-right leading-relaxed mt-0.5">
+                    با جستجوی عضو یا ماده قانونی، می‌توانید مستقیم جراحت مورد نظر خود را یافته و به لیست اضافه کنید.
+                  </p>
+
+                  {/* 📋 نتایج جستجو */}
+                  {injurySearchText.trim().length >= 1 && (() => {
+                    const norm = injurySearchText.trim();
+                    const eng = toEnglishDigits(norm).toLowerCase();
+                    const per = toPersianDigits(norm).toLowerCase();
+                    const filtered = INJURY_DATABASE.filter(item => 
+                      item.name.toLowerCase().includes(eng) ||
+                      item.name.toLowerCase().includes(per) ||
+                      item.category.toLowerCase().includes(eng) ||
+                      item.category.toLowerCase().includes(per)
+                    );
+
+                    return (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 max-h-[280px] overflow-y-auto divide-y divide-slate-100 animate-fadeIn">
+                        {filtered.length > 0 ? (
+                          filtered.map((injury) => {
+                            const isAlreadySelected = selectedInjuries.some(x => x.id === injury.id);
+                            return (
+                              <div key={injury.id} className="p-3 hover:bg-slate-50 flex items-center justify-between text-right gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[11px] font-black text-slate-800 line-clamp-2">{injury.name}</div>
+                                  <div className="text-[9px] font-bold text-slate-400 mt-0.5">{injury.category}</div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-[10px] font-black bg-sky-50 text-[#0ea5e9] px-2 py-0.5 rounded-lg">
+                                    {toPersianDigits(injury.percentage)}٪
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!isAlreadySelected) {
+                                        setSelectedInjuries([...selectedInjuries, injury]);
+                                      }
+                                      if (selectedMethod !== "جنین" && selectedMethod !== "جنایت بر میت") {
+                                        setSelectedMethod("اعضا، منافع، جراحات");
+                                      }
+                                      setInjurySearchText("");
+                                    }}
+                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer select-none ${
+                                      isAlreadySelected
+                                        ? "bg-slate-100 text-slate-400"
+                                        : "bg-[#0ea5e9] hover:bg-[#0284c7] text-white active:scale-95"
+                                    }`}
+                                  >
+                                    {isAlreadySelected ? "افزوده شده" : "افزودن +"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="p-4 text-center text-xs font-bold text-slate-400">
+                            موردی با این مشخصات یافت نشد.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+
+
                 {/* 📅 Date selection & Year (With editable day) */}
                 <div className="space-y-3 pt-1">
                   {/* Years Select ("سال") */}
@@ -1742,7 +1810,7 @@ export default function LegalCalculators() {
 
                 {/* ⚙️ Method dropdown trigger */}
                 <div className="space-y-1" dir="rtl">
-                  <label className="text-xs font-black text-slate-800 flex justify-start font-sans">روش</label>
+                  <label className="text-xs font-black text-slate-800 flex justify-start font-sans">نوع و روش</label>
                   <button
                     type="button"
                     onClick={() => {
@@ -1883,18 +1951,30 @@ export default function LegalCalculators() {
 
                 {selectedMethod === "دیه قتل" && (
                   <div className="space-y-3" dir="rtl">
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <label className="text-xs font-bold text-slate-700 flex justify-start">جنسیت و نوع متوفی</label>
-                      <select
-                        value={murderType}
-                        onChange={(e) => setMurderType(e.target.value)}
-                        className="w-full px-3 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-right outline-none focus:border-[#0ea5e9] focus:ring-1 focus:ring-[#0ea5e9] shadow-sm cursor-pointer"
-                      >
-                        <option value="man_full">مرد مسلمان (دیه کامل - ۱۰۰٪)</option>
-                        <option value="woman_half">زن مسلمان (دیه نصف شرعی - ۵۰٪)</option>
-                        <option value="woman_equalized">زن مسلمان (برابر شده سوانح و حوادث - ۱۰۰٪)</option>
-                        <option value="minority_full">اقلیت‌های دینی مصرح (دیه کامل - ۱۰۰٪)</option>
-                      </select>
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex flex-col space-y-3">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input type="radio" name="murder_type" value="man" checked={murderType === "man"} onChange={(e) => setMurderType(e.target.value)} className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]" />
+                          <span className="text-xs font-bold text-slate-800">مرد</span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input type="radio" name="murder_type" value="woman" checked={murderType === "woman"} onChange={(e) => setMurderType(e.target.value)} className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]" />
+                          <span className="text-xs font-bold text-slate-800">زن</span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input type="radio" name="murder_type" value="hermaphrodite_man" checked={murderType === "hermaphrodite_man"} onChange={(e) => setMurderType(e.target.value)} className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]" />
+                          <span className="text-xs font-bold text-slate-800">خنثی ملحق به مرد</span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input type="radio" name="murder_type" value="hermaphrodite_woman" checked={murderType === "hermaphrodite_woman"} onChange={(e) => setMurderType(e.target.value)} className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]" />
+                          <span className="text-xs font-bold text-slate-800">خنثی ملحق به زن</span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input type="radio" name="murder_type" value="hermaphrodite_ambiguous" checked={murderType === "hermaphrodite_ambiguous"} onChange={(e) => setMurderType(e.target.value)} className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]" />
+                          <span className="text-xs font-bold text-slate-800">خنثی مشکل</span>
+                        </label>
+                      </div>
                     </div>
 
                     <div className="space-y-1">
@@ -1909,45 +1989,44 @@ export default function LegalCalculators() {
                   </div>
                 )}
 
-                {selectedMethod === "اعضا، منافع، جراحات و جنین" && (
-                  <div className="space-y-3" dir="rtl">
-                    <label className="text-xs font-black text-slate-800 flex justify-start">افزودن صدمات و جراحات وارده</label>
-                    <div className="flex gap-2">
-                      <select
-                        id="injury_adder_select"
-                        className="flex-1 px-2.5 py-3 bg-white border border-slate-200 rounded-2xl text-[10.5px] font-bold text-right outline-none focus:border-[#0ea5e9] focus:ring-1 focus:ring-[#0ea5e9] shadow-sm max-w-[210px] truncate"
-                      >
-                        <option value="">-- انتخاب صدمه یا جراحت --</option>
-                        {Array.from(new Set(INJURY_DATABASE.map(item => item.category))).map(cat => (
-                          <optgroup key={cat} label={cat} className="font-extrabold text-slate-500">
-                            {INJURY_DATABASE.filter(item => item.category === cat).map(item => (
-                              <option key={item.id} value={item.id}>
-                                {item.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const selectEl = document.getElementById("injury_adder_select") as HTMLSelectElement;
-                          const selectedId = selectEl?.value;
-                          if (selectedId) {
-                            const found = INJURY_DATABASE.find(item => item.id === selectedId);
-                            if (found && !selectedInjuries.some(x => x.id === found.id)) {
-                              setSelectedInjuries([...selectedInjuries, found]);
-                              selectEl.value = ""; // reset select
-                            }
-                          }
-                        }}
-                        className="px-3.5 py-3 bg-[#0ea5e9] hover:bg-[#0284c7] text-white rounded-2xl flex items-center justify-center transition-all shadow-sm shrink-0 font-sans font-bold"
-                        title="افزودن به لیست محاسباتی"
-                      >
-                        + افزودن
-                      </button>
-                    </div>
+                {selectedMethod === "جنین" && (
+                  <div className="space-y-2 border border-slate-200 rounded-2xl p-3 bg-slate-50" dir="rtl">
+                    {INJURY_DATABASE.filter(item => item.id.startsWith("j")).map(item => (
+                      <label key={item.id} className="flex items-start gap-2.5 cursor-pointer p-2 hover:bg-white rounded-xl transition">
+                        <input
+                          type="radio"
+                          name="fetus_type"
+                          value={item.id}
+                          checked={fetusSelection === item.id}
+                          onChange={(e) => setFetusSelection(e.target.value)}
+                          className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]"
+                        />
+                        <span className="text-xs font-bold text-slate-800 leading-relaxed">{item.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
 
+                {selectedMethod === "جنایت بر میت" && (
+                  <div className="space-y-2 border border-slate-200 rounded-2xl p-3 bg-slate-50" dir="rtl">
+                    {INJURY_DATABASE.filter(item => item.id.startsWith("d")).map(item => (
+                      <label key={item.id} className="flex items-start gap-2.5 cursor-pointer p-2 hover:bg-white rounded-xl transition">
+                        <input
+                          type="radio"
+                          name="corpse_type"
+                          value={item.id}
+                          checked={corpseSelection === item.id}
+                          onChange={(e) => setCorpseSelection(e.target.value)}
+                          className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]"
+                        />
+                        <span className="text-xs font-bold text-slate-800 leading-relaxed">{item.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {selectedMethod === "اعضا، منافع، جراحات" && (
+                  <div className="space-y-3" dir="rtl">
                     {/* Added Injuries List */}
                     {selectedInjuries.length > 0 ? (
                       <div className="border border-slate-150 rounded-2xl p-2.5 bg-slate-50 space-y-2 max-h-[160px] overflow-y-auto">
@@ -1969,13 +2048,13 @@ export default function LegalCalculators() {
                         <div className="pt-1.5 border-t border-slate-200 flex items-center justify-between text-[11px] font-extrabold text-slate-800 px-1">
                           <span>جمع کل درصد آسیب بدنی:</span>
                           <span className="text-[#0ea5e9]">
-                            {toPersianDigits(selectedInjuries.reduce((s, i) => s + i.percentage, 0))} درصد
+                            {toPersianDigits(parseFloat((selectedInjuries.reduce((s, i) => s + i.percentage, 0)).toFixed(4)))} درصد
                           </span>
                         </div>
                       </div>
                     ) : (
                       <div className="py-5 text-center text-[10px] text-slate-400 font-bold bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
-                        هیچ جراحت یا آسیبی اضافه نشده است. آسیب‌های مورد نظر را از کادر بالا انتخاب کرده و دکمه + را بزنید.
+                        هیچ جراحت یا آسیبی اضافه نشده است. آسیب‌های مورد نظر را از طریق جستجوی بالا انتخاب کنید.
                       </div>
                     )}
                   </div>
@@ -2063,7 +2142,9 @@ export default function LegalCalculators() {
                           { id: "درصدی", label: "درصدی" },
                           { id: "کسری", label: "کسری" },
                           { id: "دیه قتل", label: "دیه قتل" },
-                          { id: "اعضا، منافع، جراحات و جنین", label: "اعضا، منافع، جراحات و جنین" }
+                          { id: "جنین", label: "جنین" },
+                          { id: "جنایت بر میت", label: "جنایت بر میت" },
+                          { id: "اعضا، منافع، جراحات", label: "اعضا، منافع، جراحات" }
                         ]
                           .filter(m => m.label.includes(diyehSearchQuery))
                           .map((item) => {
@@ -3533,10 +3614,11 @@ export default function LegalCalculators() {
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500">جنسیت متوفی:</span>
                           <span className="font-extrabold text-slate-900">
-                            {murderType === "man_full" && "مرد مسلمان"}
-                            {murderType === "woman_half" && "زن مسلمان (نصف)"}
-                            {murderType === "woman_equalized" && "زن مسلمان (برابر شده سوانح رانندگی)"}
-                            {murderType === "minority_full" && "اقلیت‌های دینی مصرح"}
+                            {murderType === "man" && "مرد"}
+                            {murderType === "woman" && "زن"}
+                            {murderType === "hermaphrodite_man" && "خنثی ملحق به مرد"}
+                            {murderType === "hermaphrodite_woman" && "خنثی ملحق به زن"}
+                            {murderType === "hermaphrodite_ambiguous" && "خنثی مشکل"}
                           </span>
                         </div>
                         <div className="flex justify-between items-center">
@@ -3548,7 +3630,7 @@ export default function LegalCalculators() {
                       </div>
                     )}
 
-                    {selectedMethod === "اعضا، منافع، جراحات و جنین" && (
+                    {selectedMethod === "اعضا، منافع، جراحات" && (
                       <div className="space-y-2 pb-2 border-b border-slate-100">
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500">تعداد صدمات وارده به شاکی:</span>
@@ -3557,7 +3639,41 @@ export default function LegalCalculators() {
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500">جمع کل درصدهای ارش و دیه منتخب:</span>
                           <span className="font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150">
-                            {toPersianDigits(selectedInjuries.reduce((sum, i) => sum + i.percentage, 0))}٪ دیه کامل
+                            {toPersianDigits(parseFloat((selectedInjuries.reduce((sum, i) => sum + i.percentage, 0)).toFixed(4)))}٪ دیه کامل
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedMethod === "جنین" && (
+                      <div className="space-y-2 pb-2 border-b border-slate-100">
+                        <div className="flex justify-between items-start gap-4">
+                          <span className="text-slate-500 shrink-0">نوع صدمه جنین:</span>
+                          <span className="font-extrabold text-slate-900 text-left text-[11px] leading-relaxed">
+                            {INJURY_DATABASE.find(item => item.id === fetusSelection)?.name || "نامشخص"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">درصد دیه منتخب:</span>
+                          <span className="font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150">
+                            {toPersianDigits(INJURY_DATABASE.find(item => item.id === fetusSelection)?.percentage || 0)}٪ دیه کامل
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedMethod === "جنایت بر میت" && (
+                      <div className="space-y-2 pb-2 border-b border-slate-100">
+                        <div className="flex justify-between items-start gap-4">
+                          <span className="text-slate-500 shrink-0">نوع جنایت بر میت:</span>
+                          <span className="font-extrabold text-slate-900 text-left text-[11px] leading-relaxed">
+                            {INJURY_DATABASE.find(item => item.id === corpseSelection)?.name || "نامشخص"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">درصد دیه منتخب:</span>
+                          <span className="font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150">
+                            {toPersianDigits(INJURY_DATABASE.find(item => item.id === corpseSelection)?.percentage || 0)}٪ دیه کامل
                           </span>
                         </div>
                       </div>
@@ -3604,6 +3720,9 @@ export default function LegalCalculators() {
                     <div className="space-y-2">
                       <span className="text-[10px] text-slate-400 font-extrabold block">مبلغ ورودی ({numToWordResult.direction === "toman_to_rial" ? "تومان" : "ریال"}):</span>
                       <p className="text-lg font-black text-slate-700 tracking-tight">{toPersianDigits(numToWordResult.input)} {numToWordResult.direction === "toman_to_rial" ? "تومان" : "ریال"}</p>
+                      <div className="text-[11px] font-black text-slate-500 mt-1">
+                        {numToWordResult.direction === "toman_to_rial" ? "معادل حروفی مبلغ ورودی" : "معادل حروفی مبلغ"}: {toPersianDigits(numToWordResult.wordsInput)}
+                      </div>
                     </div>
 
                     <div className="pt-4 border-t border-slate-100 space-y-2">
@@ -3939,7 +4058,7 @@ export default function LegalCalculators() {
                     <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-xl space-y-3 border border-slate-800">
                       <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                         <span className="text-[11px] font-black text-slate-400">معادل به تومان (رایج):</span>
-                        <span className="text-base font-black text-emerald-400 font-mono">{formatPersianCurrency(finResult.toman)}</span>
+                        <span className="text-base font-black text-emerald-400 font-mono">{formatPersianCurrency(finResult.toman).replace("ریال", "تومان")}</span>
                       </div>
                       <div className="text-[11px] font-bold text-slate-300 leading-relaxed text-right">
                         {finResult.wordsToman}

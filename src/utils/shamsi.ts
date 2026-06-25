@@ -168,7 +168,7 @@ export function getJalaliFirstWeekday(jy: number, jm: number): number {
 export function toPersianDigits(num: number | string): string {
   if (num === undefined || num === null) return "";
   const persianDigits = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
-  return num.toString().replace(/\d/g, (x) => persianDigits[parseInt(x)]);
+  return num.toString().replace(/\d/g, (x) => persianDigits[parseInt(x)]).replace(/\./g, "/");
 }
 
 /**
