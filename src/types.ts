@@ -14,7 +14,7 @@ export interface Client {
   createdAt: string;        // تاریخ ایجاد
 }
 
-export type CaseStage = "بدوی" | "تجدیدنظر" | "دیوان عالی" | "دیوان عدالت اداری" | "شورا" | "دادگاه صلح" | "اجرای احکام کیفری" | "اجرای احکام مدنی" | "سایر";
+export type CaseStage = "بدوی" | "دادسرا" | "بازپرسی" | "دادیاری" | "تجدید نظر استان" | "دیوان عالی کشور" | "دیوان عدالت اداری" | "شورای حل اختلاف" | "دادگاه صلح" | "اجرای احکام کیفری" | "اجرای احکام مدنی" | "سایر";
 export type CaseStatus = "جریان دارد" | "مختومه" | "در انتظار رای" | "تجدیدنظر خواهی";
 
 export type ClientPartyRole = "خواهان" | "خوانده" | "شاکی" | "متشاکی" | "متهم";
@@ -41,8 +41,12 @@ export interface LegalCase {
   insolvencyCaseNumber?: string; // شماره پرونده اعسار
   investigationCaseNumber?: string; // شماره پرونده بازپرسی
   prosecutionCaseNumber?: string; // شماره پرونده دادیاری
-  filingDate?: string;      // تاریخ تشکیل پرونده (شمسی)
+  filingDate?: string;      // تاریخ تشکیل پرونده در این سامانه (شمسی)
+  closedDate?: string;      // تاریخ مختومه شدن (شمسی)
+  courtRegistrationDate?: string; // تاریخ ثبت پرونده در دادگستری (شمسی)
+  powerOfAttorneyDate?: string;   // تاریخ اخذ وکالت از موکل (شمسی)
   receivedFee?: number;     // مبلغ حق‌الوکاله دریافتی (تومان)
+  contractNumber?: string;  // شماره قرارداد وکالتنامه
   paidExpenses?: number;    // هزینه‌های دادرسی و پرداختی پرونده (تومان)
   totalContractAmount?: number; // کل مبلغ قرارداد (تومان)
   downPayment?: number;     // مبلغ پیش پرداخت (تومان)
@@ -53,6 +57,7 @@ export interface LegalCase {
     dueDate: string; 
     isPaid?: boolean; 
     paidDate?: string; 
+    note?: string;
   }[]; // اقساط
   payments?: {
     id: string;
@@ -61,6 +66,7 @@ export interface LegalCase {
     type: string; // "نقدی", "کارت به کارت", "چک"
     date: string; // تاریخ پرداخت
     cardNumber?: string; // شماره کارت / شبا
+    receiptImage?: string; // تصویر رسید / فیش پرداخت
   }[]; // پرداختی‌های مختلف موکل
   associatedPersons?: { name: string; phone: string }[]; // افراد مرتبط
   createdAt: string;        // تاریخ ثبت در سیستم
@@ -82,6 +88,9 @@ export interface CaseDocument {
   size: string;             // حجم فایل
   dataUrl?: string;         // داده به صورت base64 یا شبیه‌سازی
   uploadedAt: string;       // تاریخ الحاق سند
+  tag?: "محرمانه" | "فوری" | "آرشیو" | "عادی"; // برچسب سند
+  lawArticle?: string;      // ماده استنادی مرتبط
+  lawText?: string;         // متن ماده یا تبصره استنادی
 }
 
 export type EventType = "جلسه دادرسی" | "ملاقات با موکل" | "پیگیری اداری" | "سایر رویدادها" | "یادآوری غیر قضایی";

@@ -1,6 +1,6 @@
 import { safeStorage } from "../utils/safeStorage";
 import { useState, useEffect } from "react";
-import { toPersianDigits, toEnglishDigits, formatPersianCurrency, formatJalaliDate, getCurrentJalali, jalaliToGregorian, getJalaliMonthDays, JALALI_MONTH_NAMES, getJalaliFirstWeekday } from "../utils/shamsi";
+import { toPersianDigits, toEnglishDigits, formatPersianCurrency, formatJalaliDate, getCurrentJalali, jalaliToGregorian, getJalaliMonthDays, JALALI_MONTH_NAMES, getJalaliFirstWeekday, adjustDateForHolidays, getPersianDayName } from "../utils/shamsi";
 import {
   calculateMehrieh,
   calculateDiyeh,
@@ -12,14 +12,14 @@ import {
   CBI_INFLATION_INDICES,
   DIYEH_RATES
 } from "../utils/calculators";
-import { Calculator, Award, Calendar, DollarSign, FileText, Printer, CheckCircle2, AlertCircle, Clock, Search, Lock, ChevronDown, Check, Info, ArrowLeft, Plus, Trash2, Globe, RefreshCw, Users, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calculator, Award, Calendar, DollarSign, FileText, Printer, CheckCircle2, AlertCircle, Clock, Search, Lock, ChevronDown, Check, Info, ArrowLeft, Plus, Trash2, Globe, RefreshCw, Users, TrendingUp, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { numberToPersianWords, persianWordsToNumber, formatThousandsSeparator, persianToEnglishDigits, englishToPersianDigits } from "../utils/numberWordsConverter";
 
 import { INJURY_DATABASE } from "../data/injuryDatabase";
 
-export default function LegalCalculators() {
+export default function LegalCalculators({ onCalculateDeadline }: { onCalculateDeadline?: (data: any) => void }) {
   const lawyerName = safeStorage.getItem("r_lawyer_name") || "";
-  const [activeTab, setActiveTab] = useState<"age" | "mehrieh" | "diyeh" | "court" | "lawyer" | "deadlines" | "erth" | "delay_interest" | "execution_fees" | "num_to_word" | "financial_assistant">("age");
+  const [activeTab, setActiveTab] = useState<"age" | "mehrieh" | "diyeh" | "court" | "lawyer" | "lawyer_comprehensive" | "deadlines" | "erth" | "delay_interest" | "execution_fees" | "num_to_word" | "financial_assistant">("age");
 
   // Convert Persian/Arabic digits from input to ASCII numbers
   const parsePersianInput = (str: string): number => {
@@ -129,12 +129,53 @@ export default function LegalCalculators() {
   const [isAgeDropdownOpen, setIsAgeDropdownOpen] = useState<boolean>(false);
 
   // --- Financial Assistant States ---
+  const [finMarketTab, setFinMarketTab] = useState<"currencies" | "gold" | "coins" | "crypto" | "global_domestic">("currencies");
   const [finAmount, setFinAmount] = useState<string>("");
-  const [finCurrency, setFinCurrency] = useState<"USD" | "TRY" | "IRR">("USD");
-  const [finRates, setFinRates] = useState({ USD: 650000, TRY: 20000 }); // Mock initial rates in Rials
-  const [finLastUpdate, setFinLastUpdate] = useState<string>("۱۴۰۳/۰۴/۰۳ ۱۰:۳۰");
+  const [finCurrency, setFinCurrency] = useState<string>("USD");
+  const [finRates, setFinRates] = useState<any>({
+    currencies: { USD: 650000, EUR: 702000, AED: 177000, TRY: 20000, GBP: 825000 },
+    gold: { geram18: 34000000, geram24: 45330000, mesghal: 147200000, abshodeh: 147200000 },
+    coins: { sekke: 405000000, bahar: 372000000, nim: 232000000, rob: 152000000, gerami: 6900000, sekke_retail: 409050000, parsian100: 4070000, parsian500: 17800000, parsian1000: 36700000, sekke_bubble: 67000000 },
+    crypto: { btc: 64250, eth: 3480, usdt: 651000, sol: 142 },
+    global_domestic: { ons_gold: 2331.4, ons_silver: 29.5, brent_oil: 85.2, tedpix: 2085000 }
+  });
+  const [finLastUpdate, setFinLastUpdate] = useState<string>("۱۴۰۵/۰۴/۰۴ ۱۰:۳۰");
   const [finResult, setFinResult] = useState<any>(null);
   const [isUpdatingRates, setIsUpdatingRates] = useState<boolean>(false);
+
+  const getAssetRate = (assetKey: string, ratesObj: any) => {
+    if (!ratesObj) return 1;
+    const keyLower = assetKey.toLowerCase();
+    const keyUpper = assetKey.toUpperCase();
+
+    // Check currencies
+    if (ratesObj.currencies) {
+      if (ratesObj.currencies[keyUpper] !== undefined) return ratesObj.currencies[keyUpper];
+      if (ratesObj.currencies[keyLower] !== undefined) return ratesObj.currencies[keyLower];
+    }
+    // Check gold
+    if (ratesObj.gold) {
+      if (ratesObj.gold[keyLower] !== undefined) return ratesObj.gold[keyLower];
+      if (ratesObj.gold[keyUpper] !== undefined) return ratesObj.gold[keyUpper];
+    }
+    // Check coins
+    if (ratesObj.coins) {
+      if (ratesObj.coins[keyLower] !== undefined) return ratesObj.coins[keyLower];
+      if (ratesObj.coins[keyUpper] !== undefined) return ratesObj.coins[keyUpper];
+    }
+    // Check cryptos
+    if (keyLower === "usdt") {
+      return ratesObj.crypto?.usdt || ratesObj.crypto?.USDT || ratesObj.currencies?.USD || ratesObj.currencies?.usd || 650000;
+    }
+    if (ratesObj.crypto) {
+      const cryptoVal = ratesObj.crypto[keyLower] !== undefined ? ratesObj.crypto[keyLower] : ratesObj.crypto[keyUpper];
+      if (cryptoVal !== undefined) {
+        const usdRate = ratesObj.currencies?.USD || ratesObj.currencies?.usd || 650000;
+        return cryptoVal * usdRate;
+      }
+    }
+    return 1;
+  };
 
   const handleUpdateRates = async () => {
     setIsUpdatingRates(true);
@@ -151,18 +192,23 @@ export default function LegalCalculators() {
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.USD && data.TRY) {
-          setFinRates({ USD: data.USD, TRY: data.TRY });
+        if (data && (data.currencies || data.USD)) {
+          const updatedRates = data.currencies ? data : {
+            currencies: { USD: data.USD || 650000, TRY: data.TRY || 20000, EUR: 702000, AED: 177000, GBP: 825000 },
+            gold: { geram18: 34000000, geram24: 45330000, mesghal: 147200000, abshodeh: 147200000 },
+            coins: { sekke: 405000000, bahar: 372000000, nim: 232000000, rob: 152000000, gerami: 6900000, sekke_retail: 409050000, parsian100: 4070000, parsian500: 17800000, parsian1000: 36700000, sekke_bubble: 67000000 },
+            crypto: { btc: 64250, eth: 3480, usdt: data.USD || 650000, sol: 142 },
+            global_domestic: { ons_gold: 2331.4, ons_silver: 29.5, brent_oil: 85.2, tedpix: 2085000 }
+          };
+          setFinRates(updatedRates);
           setFinLastUpdate(data.date || jalaliString);
-          // Recalculate if there is an amount
+          
           if (finAmount) {
             const amountStr = persianToEnglishDigits(finAmount.replace(/[^\d۰-۹]/g, ""));
             const amount = Number(amountStr);
             if (amount) {
-              let irr = 0;
-              if (finCurrency === "USD") irr = amount * data.USD;
-              else if (finCurrency === "TRY") irr = amount * data.TRY;
-              else irr = amount;
+              const rate = getAssetRate(finCurrency, updatedRates);
+              const irr = finCurrency === "IRR" ? amount : amount * rate;
               const toman = Math.floor(irr / 10);
               setFinResult({
                 amount,
@@ -171,7 +217,7 @@ export default function LegalCalculators() {
                 toman,
                 wordsIrr: numberToPersianWords(irr.toString()) + " ریال",
                 wordsToman: numberToPersianWords(toman.toString()) + " تومان",
-                rateUsed: finCurrency === "USD" ? data.USD : finCurrency === "TRY" ? data.TRY : 1
+                rateUsed: rate
               });
             }
           }
@@ -184,11 +230,16 @@ export default function LegalCalculators() {
     }
   };
 
+  useEffect(() => {
+    handleUpdateRates();
+  }, []);
+
   const calculateFinancial = (val: string, curr: string) => {
     let targetCurr = curr;
     const lowerVal = val.toLowerCase();
     if (lowerVal.includes("usd") || lowerVal.includes("دلار")) targetCurr = "USD";
     else if (lowerVal.includes("try") || lowerVal.includes("لیر")) targetCurr = "TRY";
+    else if (lowerVal.includes("eur") || lowerVal.includes("یورو")) targetCurr = "EUR";
     else if (lowerVal.includes("irr") || lowerVal.includes("ریال")) targetCurr = "IRR";
 
     const amountStr = persianToEnglishDigits(val.replace(/[^\d۰-۹]/g, ""));
@@ -198,12 +249,10 @@ export default function LegalCalculators() {
       return;
     }
 
-    let irr = 0;
-    if (targetCurr === "USD") irr = amount * finRates.USD;
-    else if (targetCurr === "TRY") irr = amount * finRates.TRY;
-    else irr = amount;
-
+    const rate = getAssetRate(targetCurr, finRates);
+    const irr = targetCurr === "IRR" ? amount : amount * rate;
     const toman = Math.floor(irr / 10);
+
     setFinResult({
       amount,
       currency: targetCurr,
@@ -211,16 +260,28 @@ export default function LegalCalculators() {
       toman,
       wordsIrr: numberToPersianWords(irr.toString()) + " ریال",
       wordsToman: numberToPersianWords(toman.toString()) + " تومان",
-      rateUsed: targetCurr === "USD" ? finRates.USD : targetCurr === "TRY" ? finRates.TRY : 1
+      rateUsed: rate
     });
-    setFinCurrency(targetCurr as any);
+    setFinCurrency(targetCurr);
   };
 
   // --- Judicial Deadline States ---
   const [judicialDaysInput, setJudicialDaysInput] = useState<string>("");
   const [judicialResult, setJudicialResult] = useState<any>(null);
+  const [deadlineView, setDeadlineView] = useState<'form' | 'result'>('form');
   const [isAgeCalendarOpen, setIsAgeCalendarOpen] = useState<boolean>(false);
   const [isAgeEndCalendarOpen, setIsAgeEndCalendarOpen] = useState<boolean>(false);
+
+  const handleClearDeadline = () => {
+    setDeadlineBaseYear(today.jy);
+    setDeadlineBaseMonth(today.jm);
+    setDeadlineBaseDay(today.jd);
+    setDeadlineType(civilDeadlines[0].title);
+    setDeadlineResult(null);
+    setJudicialDaysInput("");
+    setJudicialResult(null);
+    setDeadlineView('form');
+  };
 
   const handleCalculateAge = () => {
     const startY = Number(ageBirthYear);
@@ -327,6 +388,7 @@ export default function LegalCalculators() {
   const [murderCount, setMurderCount] = useState<string>("۱");
   const [fetusSelection, setFetusSelection] = useState<string>("j1");
   const [corpseSelection, setCorpseSelection] = useState<string>("d1");
+  const [corpseLivingPercentage, setCorpseLivingPercentage] = useState<string>("۱۰");
   const [selectedInjuries, setSelectedInjuries] = useState<any[]>([]);
   const [injurySearchText, setInjurySearchText] = useState<string>("");
   const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>("فصل اول: جراحات سر و صورت (ماده ۷۰۹)");
@@ -349,6 +411,13 @@ export default function LegalCalculators() {
   const [lawyerClaimAmount, setLawyerClaimAmount] = useState<string>("۲,۵۰۰,۰۰۰,۰۰۰");
   const [lawyerResult, setLawyerResult] = useState<any>(null);
 
+  // --- Comprehensive Lawyer & Court States ---
+  const [compClaimAmount, setCompClaimAmount] = useState<string>("");
+  const [compStage, setCompStage] = useState<"first_instance" | "appeal">("first_instance");
+  const [compHasSpecialty, setCompHasSpecialty] = useState<boolean>(false);
+  const [compIsFinancial, setCompIsFinancial] = useState<boolean>(true);
+  const [compResult, setCompResult] = useState<any>(null);
+
   // Helper to format string inputs like a numeric currency with Persian digits
   const handleAmountFormat = (val: string, setter: (val: string) => void) => {
     const digits = val.replace(/[^0-9۰-۹]/g, "");
@@ -366,60 +435,110 @@ export default function LegalCalculators() {
   const [deadlineBaseYear, setDeadlineBaseYear] = useState<number | string>(today.jy);
   const [deadlineBaseMonth, setDeadlineBaseMonth] = useState<number>(today.jm);
   const [deadlineBaseDay, setDeadlineBaseDay] = useState<number | string>(today.jd);
-  
   const civilDeadlines = [
-    { title: "طرح دعوا پس از صدور قرار اناطه", days: 30 },
-    { title: "توقف دادرسی در صورت استعفای وکیل", days: 30 },
-    { title: "رفع نقص دادخواست", days: 10 },
-    { title: "اعتراض به قرار رد دادخواست", days: 10 },
-    { title: "فاصله ابلاغ تا جلسه رسیدگی", days: 5 },
-    { title: "مطالبه خسارت ناشی از اجرای قرار تامین", days: 20 },
-    { title: "ارائه دفاع در مقابل مطالبه خسارت ناشی از اجرای قرار تامین", days: 10 },
-    { title: "درخواست جلب شخص ثالث", days: 3 },
-    { title: "دادخواست ادعای مالکیت مورد حکم تصرف عدوانی", days: 30 },
-    { title: "تسلیم سند موضوع ادعای جعل", days: 10 },
-    { title: "فاصله ابلاغ به گواه و جلسه رسیدگی", days: 7 },
-    { title: "ایداع دستمزد کارشناس", days: 7 },
-    { title: "اعتراض به نظر کارشناس", days: 7 },
-    { title: "انشاء و اعلام رأی", days: 7 },
-    { title: "پاکنویس و امضای رأی", days: 5 },
-    { title: "واخواهی", days: 20 },
-    { title: "واخواهی + تجدیدنظر", days: 40 },
-    { title: "فرجام‌خواهی", days: 20 },
-    { title: "تجدیدنظر + فرجام‌خواهی", days: 40 },
-    { title: "فرجام تبعی", days: 20 },
-    { title: "اعاده دادرسی", days: 20 },
-    { title: "اعاده دادرسی طاری", days: 3 },
-    { title: "معرفی یا اظهارنظر در مورد داور", days: 10 },
-    { title: "داوری", days: 90 },
-    { title: "تصحیح رأی داور", days: 20 },
-    { title: "اجرای رأی داور", days: 20 },
-    { title: "درخواست ابطال رأی داور", days: 20 }
+    { title: "فاصله ابلاغ تا جلسه رسیدگی", days: 5, article: "ماده ۶۴ ق.آ.د.م", lawText: "فاصله بین ابلاغ دادخواست و وقت جلسه نباید کمتر از پنج روز باشد." },
+    { title: "رفع نقص دادخواست", days: 10, article: "ماده ۵۴ ق.آ.د.م", lawText: "مدیر دفتر دادگاه ظرف دو روز نقایص دادخواست را به خواهان اطلاع داده و از تاریخ ابلاغ، ده روز به او مهلت می‌دهد تا نقایص را رفع نماید." },
+    { title: "اعتراض به قرار رد دادخواست", days: 10, article: "تبصره ماده ۵۴ و ماده ۵۳ ق.آ.د.م", lawText: "قرار رد دادخواست ظرف ده روز از تاریخ ابلاغ قابل اعتراض در همان دادگاه می‌باشد." },
+    { title: "تبادل لوایح", days: 10, article: "ماده ۳۴۶ ق.آ.د.م", lawText: "مدیر دفتر دادگاه بدوی ظرف دو روز از تاریخ وصول دادخواست تجدیدنظر، یک نسخه از آن را برای طرف دیگر دعوا ارسال می‌دارد تا ظرف ده روز پاسخ خود را تسلیم نماید." },
+    { title: "توقف دادرسی در صورت استعفای وکیل", days: 30, article: "ماده ۴۳ ق.آ.د.م", lawText: "در صورت استعفای وکیل، دادرسی حداکثر به مدت یک ماه برای تعیین وکیل جدید یا حضور موکل توقف می‌یابد." },
+    { title: "فاصله ابلاغ به گواه و جلسه رسیدگی", days: 7, article: "ماده ۲۴۲ ق.آ.د.م", lawText: "فاصله بین ابلاغ احضاریه به گواه و روز جلسه رسیدگی نباید کمتر از هفت روز باشد." },
+    { title: "ایداع دستمزد کارشناس", days: 7, article: "ماده ۲۵۹ ق.آ.د.م", lawText: "ایداع دستمزد کارشناس ظرف یک هفته از تاریخ ابلاغ اخطاریه می‌باشد." },
+    { title: "اعتراض به نظر کارشناس", days: 7, article: "ماده ۲۶۰ ق.آ.د.م", lawText: "طرفین دعوا می‌توانند ظرف یک هفته از تاریخ ابلاغ، به نظریه کارشناس اعتراض نمایند." },
+    { title: "تسلیم سند موضوع ادعای جعل", days: 10, article: "ماده ۲۲۰ ق.آ.د.م", lawText: "مدعی جعل مکلف است ظرف ده روز از تاریخ ادعا، اصل سند را به دفتر دادگاه تسلیم نماید." },
+    { title: "مطالبه خسارت ناشی از اجرای قرار تامین", days: 20, article: "ماده ۱۲۰ ق.آ.د.م", lawText: "درخواست مطالبه خسارت ناشی از اجرای قرار تامین خواسته ظرف بیست روز از تاریخ ابلاغ حکم قطعی مبنی بر بی‌حقی خواهان می‌باشد." },
+    { title: "طرح دعوا پس از صدور قرار اناطه", days: 30, article: "ماده ۱۹ ق.آ.د.م", lawText: "ذینفع مکلف است ظرف یک ماه از تاریخ ابلاغ قرار اناطه، در دادگاه صالح اقامه دعوا کرده و گواهی آن را تسلیم نماید." },
+    { title: "دادخواست ادعای مالکیت مورد حکم تصرف عدوانی", days: 30, article: "ماده ۱۷۵ ق.آ.د.م", lawText: "درخواست تجدیدنظر در مورد حکم رفع تصرف عدوانی مانع اجرا نیست مگر در صورت ادعای مالکیت که مهلت آن یک ماه است." },
+    { title: "انشاء و اعلام رأی", days: 7, article: "ماده ۲۹۵ ق.آ.د.م", lawText: "دادگاه پس از اعلام ختم دادرسی، در صورت امکان در همان جلسه وگرنه حداکثر ظرف یک هفته رای صادر می‌کند." },
+    { title: "پاکنویس و امضای رأی", days: 5, article: "ماده ۲۹۶ ق.آ.د.م", lawText: "رای دادگاه باید ظرف پنج روز از تاریخ صدور، پاکنویس شده و به امضای دادرس و مدیر دفتر برسد." },
+    { title: "درخواست جلب شخص ثالث", days: 3, article: "ماده ۱۳۵ ق.آ.د.م", lawText: "هریک از اصحاب دعوا که جلب شخص ثالث را لازم بداند، باید تا پایان اولین جلسه دادرسی جهات آن را اعلام و ظرف سه روز دادخواست تقدیم کند." },
+    { title: "اعتراض ثالث اصلی", days: 0, article: "ماده ۴۲۲ ق.آ.د.م", lawText: "اعتراض شخص ثالث قبل از اجرای حکم قطعی محدود به زمان نیست." },
+    { title: "اعتراض ثالث تبعی", days: 0, article: "ماده ۴۲۱ ق.آ.د.م", lawText: "اعتراض شخص ثالث تبعی در جریان دادرسی پرونده مطروحه." },
+    { title: "واخواهی", days: 20, article: "ماده ۳۰۶ ق.آ.د.م", lawText: "مهلت واخواهی از احکام غیابی برای کسانی که مقیم ایران می‌باشند بیست روز از تاریخ ابلاغ واقعی است." },
+    { title: "تجدیدنظرخواهی", days: 20, article: "ماده ۳۳۶ ق.آ.د.م", lawText: "مهلت درخواست تجدیدنظر اصحاب دعوا، برای اشخاص مقیم ایران بیست روز از تاریخ ابلاغ یا انقضای مدت واخواهی است." },
+    { title: "واخواهی + تجدیدنظر", days: 40, article: "مواد ۳۰۶ و ۳۳۶ ق.آ.د.م", lawText: "مجموع مهلت واخواهی (۲۰ روز) و تجدیدنظرخواهی (۲۰ روز) برای احکام غیابی قابل تجدیدنظر." },
+    { title: "فرجام خواهی اصلی", days: 20, article: "ماده ۳۹۷ ق.آ.د.م", lawText: "مهلت درخواست فرجام‌خواهی برای اشخاص مقیم ایران بیست روز از تاریخ ابلاغ رای قابل فرجام است." },
+    { title: "تجدیدنظر + فرجام‌خواهی", days: 40, article: "مواد ۳۳۶ و ۳۹۷ ق.آ.د.م", lawText: "مجموع مهلت تجدیدنظرخواهی (۲۰ روز) و فرجام‌خواهی (۲۰ روز)." },
+    { title: "فرجام تبعی", days: 20, article: "ماده ۴۱۳ ق.آ.د.م", lawText: "فرجام تبعی را می‌توان ضمن لایحه پاسخ به فرجام اصلی ظرف ۲۰ روز مطرح کرد." },
+    { title: "اعاده دادرسی", days: 20, article: "مواد ۴۲۷ و ۴۳۰ ق.آ.د.م", lawText: "مهلت درخواست اعاده دادرسی برای اشخاص مقیم ایران بیست روز از تاریخ ابلاغ حکم قطعی است." },
+    { title: "اعاده دادرسی طاری", days: 3, article: "ماده ۴۳۲ ق.آ.د.م", lawText: "در اعاده دادرسی طاری، درخواست باید ظرف سه روز به دادگاهی که حکم در آنجا به عنوان دلیل ابراز شده تقدیم گردد." },
+    { title: "معرفی یا اظهارنظر در مورد داور", days: 10, article: "مواد ۴۵۹ و ۴۶۰ ق.آ.د.م", lawText: "مهلت معرفی داور یا اظهارنظر درباره داور طرف مقابل ده روز از تاریخ ابلاغ اخطاریه است." },
+    { title: "داوری", days: 90, article: "تبصره ماده ۴۸۴ ق.آ.د.م", lawText: "در صورتی که مدت داوری تعیین نشده باشد، مدت آن سه ماه است." },
+    { title: "تصحیح رأی داور", days: 20, article: "ماده ۴۸۷ ق.آ.د.م", lawText: "درخواست تصحیح رای داور ظرف بیست روز از تاریخ ابلاغ رای داوری مقدور است." },
+    { title: "اجرای رأی داور", days: 20, article: "ماده ۴۸۸ ق.آ.د.م", lawText: "محکوم‌علیه رای داور مکلف است ظرف بیست روز از تاریخ ابلاغ، نسبت به اجرای آن اقدام نماید." },
+    { title: "درخواست ابطال رأی داور", days: 20, article: "ماده ۴۹۰ ق.آ.د.م", lawText: "درخواست ابطال رای داوری برای اشخاص مقیم ایران ظرف بیست روز از تاریخ ابلاغ رای داور است." }
   ];
 
   const criminalDeadlines = [
-    { title: "تجدیدنظرخواهی کیفری", days: 20 },
-    { title: "واخواهی کیفری", days: 20 },
-    { title: "فرجام‌خواهی کیفری", days: 20 },
-    { title: "اعتراض به قرار منع تعقیب", days: 10 },
-    { title: "اعتراض به قرار موقوفی تعقیب", days: 10 },
-    { title: "اعتراض به قرار بایگانی پرونده", days: 10 },
-    { title: "تسلیم به رأی و اسقاط حق تجدیدنظر", days: 20 }
+    { title: "استفاده از تخفیف جزای نقدی", days: 10, article: "تبصره ۳ م ۵۲۹ / م ۴۴۲ ق.آ.د.ک", lawText: "در صورت اسقاط حق تجدیدنظرخواهی یا تسلیم به رای، دادگاه می‌تواند تا یک چهارم مجازات حبس یا جزای نقدی را تخفیف دهد." },
+    { title: "اعلام تصمیم درباره اجرای حکم", days: 0, article: "مواد ۴۸۹، ۴۹۶ یا ۵۰۲ ق.آ.د.ک", lawText: "اعلام تصمیم مرجع قضایی درباره نحوه و زمان اجرای حکم." },
+    { title: "اعلام اجرای حکم سلب حیات", days: 2, article: "ماده ۴۸۴ ق.آ.د.ک", lawText: "زمان اجرای حکم سلب حیات باید حداقل ۴۸ ساعت قبل به وکیل و خانواده اطلاع داده شود." },
+    { title: "پیشنهاد کاهش مدت تعلیق", days: 0, article: "ماده ۵۵۲ ق.آ.د.ک", lawText: "در صورت رعایت شرایط تعلیق، قاضی اجرای احکام می‌تواند پیشنهاد کاهش مدت تعلیق را به دادگاه بدهد." },
+    { title: "اعتراض به قرار تأمینی شخص حقوقی", days: 10, article: "ماده ۶۹۰ ق.آ.د.ک", lawText: "قرار تامین خواسته یا قرار نظارت قضایی علیه شخص حقوقی ظرف ده روز قابل اعتراض است." },
+    { title: "واخواهی + تجدیدنظر یا فرجام", days: 40, article: "مواد ۴۰۶، ۴۲۷ و ۴۲۸ ق.آ.د.ک", lawText: "مجموع مهلت واخواهی و تجدیدنظرخواهی در امور کیفری." },
+    { title: "اعتراض به قرار رد ایراد رد دادرس", days: 10, article: "ماده ۴۷ ق.آ.د.ک / ماده ۹۲ ق.آ.د.م", lawText: "قرار رد ایراد رد دادرس ظرف ده روز قابل اعتراض در دادگاه هم‌عرض است." },
+    { title: "تجدیدنظر یا فرجام", days: 20, article: "مواد ۴۲۷ و ۴۲۸ ق.آ.د.ک", lawText: "مهلت اعتراض به آراء کیفری برای اشخاص مقیم ایران بیست روز از تاریخ ابلاغ رای است." },
+    { title: "رفع نقص دادخواست تجدیدنظر/فرجام", days: 10, article: "ماده ۳۵۰ ق.آ.د.م / ماده ۴۳۹ ق.آ.د.ک", lawText: "مهلت رفع نقص از دادخواست تجدیدنظر یا فرجام ده روز از تاریخ ابلاغ اخطاریه دفتر است." },
+    { title: "صدور رأی در دادگاه تجدیدنظر", days: 7, article: "ماده ۴۵۵ ق.آ.د.ک", lawText: "دادگاه تجدیدنظر پس از اعلام ختم رسیدگی ظرف یک هفته اقدام به صدور رای می‌نماید." },
+    { title: "اعتراض به رأی غیابی دادگاه تجدیدنظر", days: 20, article: "ماده ۴۰۶ ق.آ.د.ک", lawText: "رای غیابی دادگاه تجدیدنظر ظرف بیست روز از تاریخ ابلاغ واقعی قابل واخواهی است." },
+    { title: "درخواست انتشار حکم برائت", days: 30, article: "ماده ۵۱۲ ق.آ.د.ک", lawText: "در صورت صدور حکم برائت قطعی، ذینفع می‌تواند ظرف ۳۰ روز درخواست انتشار آن را بدهد." },
+    { title: "انتخاب وکیل در جرایم مهم", days: 10, article: "مواد ۳۰۲، ۳۴۸ و ۳۸۴ ق.آ.د.ک", lawText: "در جرایم با مجازات‌های سنگین، متهم باید ظرف ده روز نسبت به معرفی وکیل اقدام نماید." },
+    { title: "تسلیم ایرادها و اعتراض‌ها (کیفری یک)", days: 10, article: "مواد ۳۸۷ و ۳۸۸ ق.آ.د.ک", lawText: "طرفین پرونده در دادگاه کیفری یک می‌توانند ظرف ده روز از تاریخ ابلاغ، ایرادها و اعتراض‌های خود را تسلیم کنند." },
+    { title: "تهیه گزارش مبسوط پرونده", days: 0, article: "ماده ۳۸۹ ق.آ.د.ک", lawText: "گزارش مبسوط از وضعیت پرونده جهت طرح در جلسه مقدماتی دادگاه کیفری یک." },
+    { title: "صدور رأی در دادگاه کیفری یک", days: 7, article: "مواد ۳۸۲ تا ۴۰۴ ق.آ.د.ک", lawText: "دادگاه کیفری یک پس از پایان دادرسی ظرف یک هفته رای صادر می‌کند." },
+    { title: "واخواهی", days: 20, article: "ماده ۴۰۶ ق.آ.د.ک", lawText: "مهلت واخواهی از احکام غیابی کیفری برای اشخاص مقیم ایران بیست روز از تاریخ ابلاغ واقعی است." },
+    { title: "بررسی پرونده پس از ارجاع به دادگاه", days: 0, article: "مواد ۳۴۰، ۳۸۶ و ۳۸۷ ق.آ.د.ک", lawText: "مرحله بررسی اولیه پرونده توسط دادرس دادگاه پس از وصول از دادسرا." },
+    { title: "فاصله ابلاغ و جلسه رسیدگی", days: 7, article: "ماده ۳۴۳ ق.آ.د.ک / ماده ۶۴ ق.آ.د.م", lawText: "فاصله بین ابلاغ احضاریه و وقت جلسه رسیدگی در امور کیفری نباید کمتر از هفت روز باشد." },
+    { title: "فاصله انتشار آگهی تا روز رسیدگی", days: 30, article: "ماده ۳۴۴ ق.آ.د.ک / ماده ۷۳ ق.آ.د.م", lawText: "در موارد ابلاغ از طریق آگهی، فاصله انتشار تا روز جلسه نباید کمتر از یک ماه باشد." },
+    { title: "انشای رأی", days: 7, article: "ماده ۳۷۴ ق.آ.د.ک / ماده ۲۹۵ ق.آ.د.م", lawText: "دادگاه کیفری پس از اعلام ختم دادرسی، حداکثر ظرف یک هفته اقدام به انشای رای می‌کند." },
+    { title: "پاکنویس یا تایپ رأی", days: 3, article: "ماده ۳۷۸ ق.آ.د.ک / ماده ۲۹۷ ق.آ.د.م", lawText: "رای دادگاه کیفری باید ظرف سه روز از تاریخ صدور، پاکنویس و امضا شود." },
+    { title: "اعتراض به رد درخواست جبران خسارت", days: 20, article: "ماده ۲۶۰ ق.آ.د.ک", lawText: "اعتراض به تصمیم کمیسیون استانی جبران خسارت ایام بازداشت ظرف بیست روز قابل طرح است." },
+    { title: "اظهارنظر بازپرس پس از پایان تحقیقات", days: 3, article: "ماده ۲۶۲ ق.آ.د.ک", lawText: "بازپرس مکلف است ظرف سه روز از پایان تحقیقات، درباره اتهام اظهارنظر کند." },
+    { title: "اظهارنظر دادستان در مورد قرار بازپرس", days: 3, article: "ماده ۲۶۵ ق.آ.د.ک", lawText: "دادستان باید ظرف سه روز از وصول پرونده، نظر خود را درباره قرار بازپرس اعلام کند." },
+    { title: "صدور کیفرخواست", days: 2, article: "ماده ۲۶۸ ق.آ.د.ک", lawText: "در صورت موافقت دادستان با جلب به دادرسی، کیفرخواست ظرف دو روز صادر می‌شود." },
+    { title: "اعتراض به قرارهای قابل اعتراض بازپرس", days: 10, article: "ماده ۲۷۰ ق.آ.د.ک", lawText: "قرارهای بازپرس در موارد مقرر قانونی، ظرف ده روز از تاریخ ابلاغ قابل اعتراض در دادگاه صالح است." },
+    { title: "اظهارنظر در فک یا تبدیل قرار بازداشت", days: 10, article: "ماده ۲۴۲ ق.آ.د.ک", lawText: "بازپرس مکلف است هر ماه ضرورت ابقاء قرار بازداشت موقت را بررسی و اظهارنظر کند." },
+    { title: "اعتراض به رد فک/تبدیل بازداشت", days: 10, article: "ماده ۲۴۲ ق.آ.د.ک", lawText: "اعتراض به تصمیم بازپرس مبنی بر ابقاء قرار بازداشت ظرف ده روز قابل طرح است." },
+    { title: "اعتراض به ابقاء قرار بازداشت موقت", days: 10, article: "مواد ۲۴۲ یا ۲۴۶ ق.آ.د.ک", lawText: "اعتراض به ادامه بازداشت موقت متهم در دادگاه صالح." },
+    { title: "اعتراض به قرار نظارت قضایی", days: 10, article: "تبصره ۲ ماده ۲۴۷ ق.آ.د.ک", lawText: "اعتراض به قرار نظارت قضایی بازپرس ظرف ده روز از تاریخ ابلاغ مقدور است." },
+    { title: "درخواست جبران خسارت از کمیسیون", days: 180, article: "مواد ۲۵۷ و ۲۵۸ ق.آ.د.ک", lawText: "مهلت درخواست جبران خسارت ایام بازداشت بی‌گناهی، شش ماه از تاریخ ابلاغ رای قطعی برائت است." },
+    { title: "اعتراض به قرار منتهی به بازداشت", days: 10, article: "تبصره ماده ۲۲۶ ق.آ.د.ک", lawText: "اعتراض به قرارهای تامین منتهی به بازداشت متهم ظرف ده روز از تاریخ ابلاغ ممکن است." },
+    { title: "اعتراض به اخذ وجه‌الکفاله/ضبط وثیقه", days: 10, article: "ماده ۲۳۵ ق.آ.د.ک", lawText: "اعتراض به دستور دادستان مبنی بر ضبط وثیقه یا اخذ وجه‌الکفاله ظرف ده روز قابل طرح در دادگاه است." },
+    { title: "تحویل متهم توسط کفیل یا وثیقه‌گذار", days: 0, article: "ماده ۲۲۸ ق.آ.د.ک", lawText: "کفیل یا وثیقه‌گذار می‌تواند در هر مرحله با معرفی و تحویل متهم، رفع مسئولیت خود را بخواهد." },
+    { title: "واریز وجه قرار تأمین به صندوق دولت", days: 30, article: "مواد ۲۳۰ و ۲۳۶ ق.آ.د.ک", lawText: "مهلت واریز وجه پس از ابلاغ واقعی اخطاریه به کفیل یا وثیقه‌گذار یک ماه است." },
+    { title: "حل اختلاف بازپرس و دادستان در بازداشت", days: 0, article: "ماده ۲۴۴ ق.آ.د.ک", lawText: "در صورت اختلاف نظر بین بازپرس و دادستان در مورد بازداشت، حل اختلاف با دادگاه است." },
+    { title: "تقدیم دادخواست ضرر و زیان", days: 0, article: "قسمت اخیر ماده ۸۶ ق.آ.د.ک", lawText: "شاکی می‌تواند تا قبل از اعلام ختم دادرسی، دادخواست ضرر و زیان خود را به دادگاه تسلیم کند." },
+    { title: "اعتراض به رد درخواست دسترسی به پرونده", days: 3, article: "تبصره ۱ م ۱۰۰ / م ۱۹۱ ق.آ.د.ک", lawText: "اعتراض به تصمیم بازپرس مبنی بر عدم دسترسی به پرونده ظرف سه روز قابل طرح در دادگاه است." }
   ];
 
   const executionDeadlines = [
-    { title: "مهلت اجرای حکم", days: 10 },
-    { title: "معرفی مال", days: 10 },
-    { title: "اعتراض به ارزیابی (کارشناسی)", days: 3 },
-    { title: "اعتراض شخص ثالث به توقیف مال", days: 10 }
+    { title: "اجرای حکم غیابی پس از انجام آگهی", days: 30, article: "ماده ۴۴ ق.ا.ا.م", lawText: "چنانچه محکوم‌علیه غایب باشد، اجرای حکم پس از انجام آگهی صورت می‌گیرد." },
+    { title: "اجرای مفاد اجرائیه", days: 10, article: "ماده ۳۴ ق.ا.ا.م", lawText: "محکوم‌علیه مکلف است ظرف ده روز از تاریخ ابلاغ اجراییه، مفاد آن را به موقع اجرا بگذارد یا مالی معرفی کند." },
+    { title: "پرداخت بدهی پس از تمکن", days: 10, article: "قانون اجرای احکام مدنی", lawText: "محکوم‌علیه مکلف است پس از رفع عسرت و تمکن، ظرف ده روز بدهی خود را بپردازد." },
+    { title: "تسلیم قرار تاخیر اجرای حکم", days: 0, article: "قانون اجرای احکام مدنی", lawText: "ارائه و تسلیم قرار تاخیر اجرای حکم صادر شده از مرجع ذی‌صلاح." },
+    { title: "شکایت نسبت به صورت برداری اموال منقول", days: 7, article: "قانون اجرای احکام مدنی", lawText: "شکایت از اقدامات دادورز در خصوص صورت‌برداری اموال." },
+    { title: "اعتراض به نظریه ارزیاب اموال منقول", days: 3, article: "ماده ۷۳ ق.ا.ا.م", lawText: "طرفین می‌توانند ظرف سه روز از تاریخ ابلاغ نظریه ارزیاب، به آن اعتراض نمایند." },
+    { title: "پرداخت حق الزحمه ارزیاب اموال منقول", days: 3, article: "ماده ۷۶ ق.ا.ا.م", lawText: "حق‌الزحمه ارزیاب باید در مهلت مقرر پرداخت گردد." },
+    { title: "پرداخت اجرت حافظ اموال منقول", days: 0, article: "قانون اجرای احکام مدنی", lawText: "پرداخت اجرت حافظ اموال توقیف شده." },
+    { title: "انکار وجود تمام یا قسمتی از مال یا طلب یا اجور و عواید محکوم علیه نزد ثالث", days: 10, article: "ماده ۸۹ ق.ا.ا.م", lawText: "شخص ثالث باید ظرف ده روز از تاریخ ابلاغ، مراتب انکار خود را به قسمت اجرا اطلاع دهد." },
+    { title: "شکایت نسبت به تنظیم صورت اموال غیرمنقول", days: 7, article: "ماده ۱۴۲ ق.ا.ا.م", lawText: "شکایت نسبت به تنظیم صورت اموال ظرف یک هفته مسموع است." },
+    { title: "موعد فروش اموال منقول (حداقل)", days: 10, article: "ماده ۱۱۹ ق.ا.ا.م", lawText: "موعد فروش باید طوری معین شود که فاصله بین انتشار آگهی و روز فروش کمتر از ده روز نباشد." },
+    { title: "موعد فروش اموال منقول (حداکثر)", days: 30, article: "ماده ۱۱۹ ق.ا.ا.م", lawText: "موعد فروش باید طوری معین شود که فاصله بین انتشار آگهی و روز فروش بیشتر از یک ماه نباشد." },
+    { title: "شکایت راجع به تخلف از مقررات مزایده", days: 7, article: "ماده ۱۴۲ ق.ا.ا.م", lawText: "شکایت راجع به تخلف از مقررات مزایده ظرف یک هفته از تاریخ وقوع آن مسموع است." },
+    { title: "شکایت راجع به تنظیم صورت ملک و ارزیابی آن و تخلف از مقررات مزایده و سایر اقدامات دادورز", days: 7, article: "ماده ۱۴۲ ق.ا.ا.م", lawText: "شکایت راجع به اقدامات دادورز ظرف یک هفته از تاریخ وقوع مسموع است." },
+    { title: "جلوگیری از انتقال ملک مالک به محکوم له", days: 60, article: "ماده ۱۴۳ ق.ا.ا.م", lawText: "مالک می‌تواند ظرف دو ماه با پرداخت محکوم‌به و هزینه‌های اجرایی از انتقال ملک جلوگیری کند." },
+    { title: "شکایت طلبکاران نسبت به ترتیب تقسیم", days: 7, article: "ماده ۱۷۱ ق.ا.ا.م", lawText: "طلبکاران می‌توانند ظرف یک هفته از تاریخ اخطار نسبت به ترتیب تقسیم شکایت کنند." },
+    { title: "پرداخت حق اجرا", days: 10, article: "ماده ۱۶۰ ق.ا.ا.م", lawText: "حق اجرای احکام مدنی باید مطابق مقررات پرداخت شود." },
+    { title: "پژوهش از قرار رد تقاضای اجرای احکام و اسناد لازم الاجرای کشورهای خارجی", days: 10, article: "ماده ۱۷۹ ق.ا.ا.م", lawText: "پژوهش از قرار رد تقاضا ظرف ده روز امکان‌پذیر است." }
   ];
 
   const currentDeadlineOptions = deadlineCategory === "civil" ? civilDeadlines : deadlineCategory === "criminal" ? criminalDeadlines : executionDeadlines;
 
-  const [deadlineType, setDeadlineType] = useState<string>("طرح دعوا پس از صدور قرار اناطه");
+  const [deadlineType, setDeadlineType] = useState<string>("تبادل لوایح");
+  const [deadlineSearchQuery, setDeadlineSearchQuery] = useState<string>("");
   
   // Set default deadlineType when category changes
   useEffect(() => {
+    setDeadlineSearchQuery("");
     if (deadlineCategory === "civil") setDeadlineType(civilDeadlines[0].title);
     else if (deadlineCategory === "criminal") setDeadlineType(criminalDeadlines[0].title);
     else setDeadlineType(executionDeadlines[0].title);
@@ -428,6 +547,7 @@ export default function LegalCalculators() {
   const [deadlineIncludeAbroad, setDeadlineIncludeAbroad] = useState<boolean>(false);
   const [deadlineIncludeThursdays, setDeadlineIncludeThursdays] = useState<boolean>(false);
   const [deadlineResult, setDeadlineResult] = useState<any>(null);
+  const [showDeadlineRules, setShowDeadlineRules] = useState(false);
 
   // --- Inheritance (Erth) States ---
   const [erthMarryStatus, setErthMarryStatus] = useState<"single" | "husband" | "wife">("single");
@@ -671,8 +791,14 @@ export default function LegalCalculators() {
       const found = INJURY_DATABASE.find(item => item.id === fetusSelection);
       if (found) fraction = found.percentage / 100;
     } else if (selectedMethod === "جنایت بر میت") {
-      const found = INJURY_DATABASE.find(item => item.id === corpseSelection);
-      if (found) fraction = found.percentage / 100;
+      if (corpseSelection === "d6" || corpseSelection === "d7") {
+        const engPct = toEnglishDigits(corpseLivingPercentage).replace(/[^0-9.]/g, "");
+        const pct = parseFloat(engPct) || 0;
+        fraction = (pct / 10) / 100;
+      } else {
+        const found = INJURY_DATABASE.find(item => item.id === corpseSelection);
+        if (found) fraction = found.percentage / 100;
+      }
     } else if (selectedMethod === "اعضا، منافع، جراحات") {
       const totalPct = selectedInjuries.reduce((sum, injury) => sum + injury.percentage, 0);
       let fractionRaw = totalPct / 100;
@@ -700,6 +826,58 @@ export default function LegalCalculators() {
     if (courtStage !== "non_financial" && rawClaim <= 0) return;
     const res = calculateCourtFees(rawClaim, courtStage);
     setCourtResult(res);
+  };
+
+  const handleCalculateComp = () => {
+    const rawClaim = parsePersianInput(compClaimAmount);
+    
+    // 1. Calculate Lawyer Tariff
+    let baseTariff = 0;
+    if (compIsFinancial) {
+      if (rawClaim <= 500000000) baseTariff = rawClaim * 0.08;
+      else if (rawClaim <= 2000000000) baseTariff = (500000000 * 0.08) + ((rawClaim - 500000000) * 0.07);
+      else if (rawClaim <= 10000000000) baseTariff = (500000000 * 0.08) + (1500000000 * 0.07) + ((rawClaim - 2000000000) * 0.05);
+      else if (rawClaim <= 30000000000) baseTariff = (500000000 * 0.08) + (1500000000 * 0.07) + (8000000000 * 0.05) + ((rawClaim - 10000000000) * 0.04);
+      else baseTariff = (500000000 * 0.08) + (1500000000 * 0.07) + (8000000000 * 0.05) + (20000000000 * 0.04) + ((rawClaim - 30000000000) * 0.03);
+    } else {
+      baseTariff = 50000000;
+    }
+    
+    if (compHasSpecialty) baseTariff = baseTariff * 1.10;
+    
+    const lawyerFee = compStage === "first_instance" ? baseTariff * 0.60 : baseTariff * 0.40;
+    
+    // 2. Calculate Taxes and Stamps (based on lawyerFee)
+    const taxStamp = lawyerFee * 0.05; // 5%
+    const supportFund = lawyerFee * 0.025; // 2.5%
+    const barShare = lawyerFee * 0.0125; // 1.25%
+    
+    // 3. Calculate Court Fees
+    let courtFee = 0;
+    if (compIsFinancial) {
+      if (compStage === "first_instance") {
+        if (rawClaim <= 200000000) courtFee = rawClaim * 0.025;
+        else courtFee = (200000000 * 0.025) + ((rawClaim - 200000000) * 0.035);
+      } else {
+        courtFee = rawClaim * 0.045;
+      }
+    } else {
+      courtFee = 1500000; // Fixed non-financial fee
+    }
+    
+    const totalCosts = lawyerFee + taxStamp + supportFund + barShare + courtFee;
+    
+    setCompResult({
+      claimAmount: rawClaim,
+      lawyerFee: Math.round(lawyerFee),
+      taxStamp: Math.round(taxStamp),
+      supportFund: Math.round(supportFund),
+      barShare: Math.round(barShare),
+      courtFee: Math.round(courtFee),
+      totalCosts: Math.round(totalCosts),
+      isFinancial: compIsFinancial,
+      stageName: compStage === "first_instance" ? "مرحله بدوی (نخستین)" : "مرحله تجدیدنظر",
+    });
   };
 
   const handleCalculateLawyer = () => {
@@ -841,10 +1019,51 @@ export default function LegalCalculators() {
     let baseDaysLegal = selectedOption ? selectedOption.days : 20;
 
     if (deadlineIncludeAbroad) {
-      if (deadlineType.includes("تجدیدنظر") || deadlineType.includes("واخواهی") || deadlineType.includes("فرجام")) {
-        baseDaysLegal = 60;
-      } else {
-        baseDaysLegal *= 2;
+      if (deadlineCategory === "criminal") {
+        const nonAbroadCriminal = [
+          "اعلام تصمیم درباره اجرای حکم",
+          "اعلام اجرای حکم سلب حیات",
+          "پیشنهاد کاهش مدت تعلیق",
+          "صدور رأی در دادگاه تجدیدنظر",
+          "صدور رأی در دادگاه کیفری یک",
+          "انشای رأی",
+          "پاکنویس یا تایپ رأی",
+          "اظهارنظر بازپرس پس از پایان تحقیقات",
+          "اظهارنظر دادستان در مورد قرار بازپرس",
+          "صدور کیفرخواست",
+          "تحویل متهم توسط کفیل یا وثیقه‌گذار",
+          "حل اختلاف بازپرس و دادستان در بازداشت",
+          "درخواست جبران خسارت از کمیسیون"
+        ];
+        if (!nonAbroadCriminal.includes(deadlineType)) {
+          if (deadlineType.includes("+")) {
+            baseDaysLegal = 120; // 60 + 60
+          } else {
+            baseDaysLegal = 60;
+          }
+        }
+      } else if (deadlineCategory === "civil") {
+        const nonAbroadDeadlines = [
+          "داوری",
+          "توقف دادرسی در صورت استعفای وکیل",
+          "انشاء و اعلام رأی",
+          "پاکنویس و امضای رأی",
+          "طرح دعوا پس از صدور قرار اناطه",
+          "فاصله ابلاغ به گواه و جلسه رسیدگی",
+          "دادخواست ادعای مالکیت مورد حکم تصرف عدوانی",
+          "ایداع دستمزد کارشناس",
+          "اعتراض به نظر کارشناس",
+          "درخواست جلب شخص ثالث",
+          "اعتراض ثالث اصلی",
+          "اعتراض ثالث تبعی"
+        ];
+        if (!nonAbroadDeadlines.includes(deadlineType)) {
+          if (deadlineType.includes("+")) {
+            baseDaysLegal = 120; // 60 + 60
+          } else {
+            baseDaysLegal = 60;
+          }
+        }
       }
     }
 
@@ -871,6 +1090,21 @@ export default function LegalCalculators() {
       deadlineIncludeThursdays
     );
     setJudicialResult(resJudicial);
+    
+    if (onCalculateDeadline) {
+      onCalculateDeadline({
+        deadlineResult: resLegal,
+        deadlineType,
+        deadlineBaseYear,
+        deadlineBaseMonth,
+        deadlineBaseDay,
+        judicialResult: resJudicial,
+        judicialDaysInput,
+        currentDeadlineOptions
+      });
+    } else {
+      setDeadlineView('result');
+    }
   };
 
   const handleCalculateErth = () => {
@@ -1076,13 +1310,36 @@ export default function LegalCalculators() {
           {activeTab === "deadlines" && deadlineResult && (
             <div className="space-y-3 text-xs leading-relaxed">
               <p><strong>تاریخ دقیق ابلاغ اولیه اظهارنامه/دادنامه:</strong> {toPersianDigits(`${deadlineBaseYear}/${deadlineBaseMonth}/${deadlineBaseDay}`)}</p>
-              <p><strong>نوع موعد و مهله قضایی:</strong> {deadlineResult.typeName}</p>
-              <p><strong>محدوده فرجه قانونی مصوب:</strong> {toPersianDigits(deadlineResult.daysCount)} روز کامل کاری</p>
-              <p><strong>تاریخ شروع مهلت (روز پس از ابلاغ):</strong> {toPersianDigits(deadlineResult.startDate)}</p>
-              <p><strong>آخرین روز فرجه مادی:</strong> {toPersianDigits(deadlineResult.endDate)}</p>
+              <p><strong>نوع موعد و مهلت قضایی:</strong> {deadlineResult.typeName}</p>
+              {currentDeadlineOptions.find(opt => opt.title === deadlineType)?.article && (
+                <p><strong>مستند قانونی:</strong> {currentDeadlineOptions.find(opt => opt.title === deadlineType)?.article}</p>
+              )}
+              <p><strong>محدوده فرجه قانونی مصوب:</strong> {
+                (deadlineType.includes("اعتراض ثالث اصلی") || deadlineType.includes("اعتراض ثالث تبعی"))
+                  ? "فاقد محدودیت روزشمار قانونی"
+                  : `${toPersianDigits(deadlineResult.baseDaysCount)} روز کامل کاری`
+              }</p>
+              <p><strong>تاریخ شروع مهلت (روز پس از ابلاغ):</strong> {
+                (deadlineType.includes("اعتراض ثالث اصلی") || deadlineType.includes("اعتراض ثالث تبعی"))
+                  ? "بدون نیاز به شمارش روز"
+                  : toPersianDigits(deadlineResult.startDate)
+              }</p>
+              <p><strong>آخرین روز فرجه مادی:</strong> <span className="text-red-600 font-black">{
+                deadlineType.includes("اعتراض ثالث اصلی")
+                  ? "قبل از اجرای کامل حکم (ماده ۴۲۲ ق.آ.د.م)"
+                  : deadlineType.includes("اعتراض ثالث تبعی")
+                  ? "تا قبل از پایان دادرسی پرونده اصلی (ماده ۴۲۱ ق.آ.د.م)"
+                  : toPersianDigits(deadlineResult.endDate)
+              }</span></p>
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-300 mt-6 text-center text-sm">
                 <strong>آخرین مهلت تقدیم قانونی لایحه یا دادخواست به دفاتر ابلاغ ثنا:</strong>
-                <p className="text-lg font-black text-red-700 mt-1">{toPersianDigits(deadlineResult.dueDate)}</p>
+                <p className="text-lg font-black text-red-700 mt-1">{
+                  deadlineType.includes("اعتراض ثالث اصلی")
+                    ? "قبل از اجرای کامل حکم"
+                    : deadlineType.includes("اعتراض ثالث تبعی")
+                    ? "تا پایان دادرسی پرونده اصلی"
+                    : adjustDateForHolidays(deadlineResult.endDate).adjustedDate
+                }</p>
               </div>
             </div>
           )}
@@ -1267,6 +1524,15 @@ export default function LegalCalculators() {
           >
             <Calculator className="w-3.5 h-3.5" />
             حق‌الوکاله و تمبر مالیاتی
+          </button>
+          <button
+            onClick={() => setActiveTab("lawyer_comprehensive")}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[10px] sm:text-xs font-black select-none cursor-pointer duration-150 text-center w-full ${
+              activeTab === "lawyer_comprehensive" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <Calculator className="w-3.5 h-3.5 text-blue-500 font-bold" />
+            هزینه‌های جامع دادرسی و وکالت
           </button>
           <button
             onClick={() => setActiveTab("delay_interest")}
@@ -2036,20 +2302,57 @@ export default function LegalCalculators() {
                 )}
 
                 {selectedMethod === "جنایت بر میت" && (
-                  <div className="space-y-2 border border-slate-200 rounded-2xl p-3 bg-slate-50" dir="rtl">
-                    {INJURY_DATABASE.filter(item => item.id.startsWith("d")).map(item => (
-                      <label key={item.id} className="flex items-start gap-2.5 cursor-pointer p-2 hover:bg-white rounded-xl transition">
-                        <input
-                          type="radio"
-                          name="corpse_type"
-                          value={item.id}
-                          checked={corpseSelection === item.id}
-                          onChange={(e) => setCorpseSelection(e.target.value)}
-                          className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]"
-                        />
-                        <span className="text-xs font-bold text-slate-800 leading-relaxed">{item.name}</span>
-                      </label>
-                    ))}
+                  <div className="space-y-3" dir="rtl">
+                    <div className="space-y-2 border border-slate-200 rounded-2xl p-3 bg-slate-50">
+                      {INJURY_DATABASE.filter(item => item.id.startsWith("d")).map(item => (
+                        <label key={item.id} className="flex items-start gap-2.5 cursor-pointer p-2 hover:bg-white rounded-xl transition">
+                          <input
+                            type="radio"
+                            name="corpse_type"
+                            value={item.id}
+                            checked={corpseSelection === item.id}
+                            onChange={(e) => setCorpseSelection(e.target.value)}
+                            className="w-4 h-4 mt-0.5 text-[#0ea5e9] border-slate-300 focus:ring-[#0ea5e9]"
+                          />
+                          <span className="text-xs font-bold text-slate-800 leading-relaxed">{item.name}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    {(corpseSelection === "d6" || corpseSelection === "d7") && (
+                      <div className="border border-blue-200 bg-blue-50/50 p-4 rounded-2xl space-y-2 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-extrabold text-blue-900 block">
+                            درصد دیه یا ارش این آسیب در انسان زنده:
+                          </label>
+                          <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-md">
+                            ماده ۷۲۳ قانون مجازات
+                          </span>
+                        </div>
+                        <div className="relative group">
+                          <input
+                            type="text"
+                            value={corpseLivingPercentage}
+                            onChange={(e) => setCorpseLivingPercentage(e.target.value)}
+                            placeholder="مثلاً: ۱۰"
+                            className="w-full px-4 py-3 bg-white border border-blue-200 rounded-xl text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-blue-600 transition-all text-right"
+                          />
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">
+                            درصد (٪)
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">
+                          طبق ماده ۷۲۳ قانون مجازات اسلامی، دیه این جنایت بر میت معادل <span className="font-bold text-blue-700">یک‌دهم (۱/۱۰)</span> دیه یا ارش آن در انسان زنده خواهد بود که برابر است با:{" "}
+                          <span className="font-extrabold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                            {(() => {
+                              const engPct = toEnglishDigits(corpseLivingPercentage).replace(/[^0-9.]/g, "");
+                              const pct = parseFloat(engPct) || 0;
+                              return toPersianDigits((pct / 10).toString());
+                            })()}٪ دیه کامل
+                          </span>
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2248,6 +2551,73 @@ export default function LegalCalculators() {
               </>
             )}
 
+            {activeTab === "lawyer_comprehensive" && (
+              <>
+                <h3 className="text-xs font-black text-slate-800 flex items-center gap-2">
+                  <Calculator className="w-4 h-4 text-amber-500 shrink-0" />
+                  محاسبه جامع هزینه دادرسی و حق‌الوکاله
+                </h3>
+
+                <div className="space-y-1.5 pt-2">
+                  <label className="text-[11px] font-bold text-slate-500">مرحله رسیدگی</label>
+                  <select
+                    value={compStage}
+                    onChange={(e) => setCompStage(e.target.value as any)}
+                    className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
+                  >
+                    <option value="first_instance">مرحله بدوی (نخستین)</option>
+                    <option value="appeal">مرحله تجدیدنظر</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-500">نوع دعوا</label>
+                    <select
+                      value={compIsFinancial ? "yes" : "no"}
+                      onChange={(e) => setCompIsFinancial(e.target.value === "yes")}
+                      className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
+                    >
+                      <option value="yes">مالی</option>
+                      <option value="no">غیرمالی</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-500">تخصص وکیل</label>
+                    <select
+                      value={compHasSpecialty ? "yes" : "no"}
+                      onChange={(e) => setCompHasSpecialty(e.target.value === "yes")}
+                      className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900"
+                    >
+                      <option value="no">عادی</option>
+                      <option value="yes">دارای گواهی تخصصی (۱۰٪ اضافه)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 mt-3 pt-3 border-t border-slate-100">
+                  <label className="text-[11px] font-bold text-slate-500">
+                    بهای خواسته / مبلغ (ریال)
+                  </label>
+                  <input
+                    type="text"
+                    value={compClaimAmount}
+                    onChange={(e) => handleAmountFormat(e.target.value, setCompClaimAmount)}
+                    className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black outline-none focus:ring-1 focus:ring-slate-900 text-left dir-ltr"
+                    placeholder="مثلاً: ۲,۵۰۰,۰۰۰,۰۰۰"
+                    disabled={!compIsFinancial}
+                  />
+                </div>
+
+                <button
+                  onClick={handleCalculateComp}
+                  className="w-full py-3.5 mt-2 bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-white rounded-xl text-xs font-black select-none cursor-pointer transition duration-150"
+                >
+                  محاسبه هزینه‌های قانونی
+                </button>
+              </>
+            )}
+
             {activeTab === "lawyer" && (
               <>
                 <h3 className="text-xs font-black text-slate-800 flex items-center gap-2">
@@ -2411,16 +2781,30 @@ export default function LegalCalculators() {
 
             {activeTab === "deadlines" && (
               <>
-                <h3 className="text-xs font-black text-slate-800 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-500 shrink-0" />
-                  محاسبه مواعد قانونی و قضایی
-                </h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xs font-black text-slate-800 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                    محاسبه مواعد قانونی و قضایی
+                  </h3>
+                  <button 
+                    onClick={() => setShowDeadlineRules(true)}
+                    className="text-[10px] text-amber-600 hover:text-amber-800 hover:bg-amber-100 transition-colors font-bold bg-amber-50 px-2 py-1 rounded-md"
+                  >
+                    مقررات محاسبه
+                  </button>
+                </div>
 
                 <div className="space-y-1.5 mt-2">
                   <label className="text-[11px] font-bold text-slate-500">دسته بندی</label>
                   <select
                     value={deadlineCategory}
-                    onChange={(e) => setDeadlineCategory(e.target.value as any)}
+                    onChange={(e) => {
+                      const newCat = e.target.value as "civil" | "criminal" | "execution";
+                      setDeadlineCategory(newCat);
+                      if (newCat === "civil") setDeadlineType(civilDeadlines[0].title);
+                      else if (newCat === "criminal") setDeadlineType(criminalDeadlines[0].title);
+                      else setDeadlineType(executionDeadlines[0].title);
+                    }}
                     className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 appearance-none"
                   >
                     <option value="civil">آئین دادرسی مدنی</option>
@@ -2431,7 +2815,47 @@ export default function LegalCalculators() {
 
                 <div className="grid grid-cols-2 gap-3 mt-2">
                   <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-500">نوع مهلت قانونی</label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[11px] font-bold text-slate-500">نوع مهلت قانونی</label>
+                      <div className="flex items-center gap-2">
+                        {deadlineSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setDeadlineSearchQuery("")}
+                            className="text-[9px] text-slate-400 hover:text-slate-600 font-bold"
+                          >
+                            پاک کردن جستجو
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleClearDeadline}
+                          className="text-[10px] text-red-600 hover:text-red-700 font-bold px-2 py-0.5 rounded border border-red-200 bg-red-50"
+                        >
+                          پاک کردن
+                        </button>
+                      </div>
+                    </div>
+                    {/* Search input above the select box */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="جستجو کردن در مهلت‌ها..."
+                        value={deadlineSearchQuery}
+                        onChange={(e) => {
+                          const query = e.target.value;
+                          setDeadlineSearchQuery(query);
+                          // Auto-select first matching option if available
+                          const filtered = currentDeadlineOptions.filter(opt =>
+                            opt.title.toLowerCase().includes(query.toLowerCase())
+                          );
+                          if (filtered.length > 0 && !filtered.some(f => f.title === deadlineType)) {
+                            setDeadlineType(filtered[0].title);
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[10px] font-bold outline-none focus:ring-1 focus:ring-slate-900 placeholder:text-slate-400"
+                      />
+                    </div>
                     <select
                       value={deadlineType}
                       onChange={(e) => {
@@ -2440,9 +2864,17 @@ export default function LegalCalculators() {
                       }}
                       className="w-full px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-slate-900 appearance-none"
                     >
-                      {currentDeadlineOptions.map((opt) => (
-                        <option key={opt.title} value={opt.title}>{opt.title}</option>
-                      ))}
+                      {currentDeadlineOptions.filter(opt =>
+                        opt.title.toLowerCase().includes(deadlineSearchQuery.toLowerCase())
+                      ).length > 0 ? (
+                        currentDeadlineOptions.filter(opt =>
+                          opt.title.toLowerCase().includes(deadlineSearchQuery.toLowerCase())
+                        ).map((opt) => (
+                          <option key={opt.title} value={opt.title}>{opt.title}</option>
+                        ))
+                      ) : (
+                        <option value="">موردی یافت نشد</option>
+                      )}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -3342,27 +3774,7 @@ export default function LegalCalculators() {
 
                 <div className="space-y-4 pt-1">
                   <div className="space-y-2">
-                    <label className="text-[11px] font-bold text-slate-600 block">انتخاب ارز</label>
-                    <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 gap-1 select-none">
-                      {(["USD", "TRY", "IRR"] as const).map((curr) => (
-                        <button
-                          key={curr}
-                          type="button"
-                          onClick={() => setFinCurrency(curr)}
-                          className={`flex-1 py-2 rounded-xl text-xs font-black transition-all cursor-pointer text-center ${
-                            finCurrency === curr
-                              ? "bg-slate-900 text-white shadow-sm"
-                              : "text-slate-500 hover:bg-slate-200"
-                          }`}
-                        >
-                          {curr === "USD" ? "دلار آمریکا" : curr === "TRY" ? "لیر ترکیه" : "ریال ایران"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-bold text-slate-600 block">مبلغ ورودی</label>
+                    <label className="text-[11px] font-bold text-slate-600 block">مقدار / تعداد ورودی</label>
                     <div className="relative group">
                       <input
                         type="text"
@@ -3371,11 +3783,31 @@ export default function LegalCalculators() {
                           const val = e.target.value;
                           setFinAmount(val);
                         }}
-                        placeholder={`مثلاً: ۱۰ ${finCurrency === "USD" ? "USD" : finCurrency === "TRY" ? "TRY" : "ریال"}`}
+                        placeholder={`مثلاً: ۱۰`}
                         className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-850 outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-right"
                       />
                       <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
                     </div>
+                    {(() => {
+                      const displayNames: Record<string, string> = {
+                        USD: "دلار آمریکا", EUR: "یورو", TRY: "لیر", AED: "درهم", GBP: "پوند", IRR: "ریال",
+                        geram18: "طلای ۱۸ عیار", geram24: "طلای ۲۴ عیار", mesghal: "مثقال طلا", abshodeh: "آبشده",
+                        sekke: "سکه امامی", bahar: "سکه بهار آزادی", nim: "نیم سکه", rob: "ربع سکه", gerami: "سکه گرمی",
+                        parsian100: "پارسیان ۱۰۰mg", parsian500: "پارسیان ۵۰۰mg", parsian1000: "پارسیان ۱۰۰۰mg",
+                        btc: "بیت‌کوین", eth: "اتریوم", sol: "سولانا", USDT: "تتر"
+                      };
+                      const rateVal = getAssetRate(finCurrency, finRates);
+                      const isUSDValue = ["btc", "eth", "sol"].includes(finCurrency);
+                      return (
+                        <div className="flex justify-between items-center bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/60 mt-1">
+                          <span className="text-[10px] font-bold text-slate-600">ارز / دارایی فعال:</span>
+                          <span className="text-[11px] font-black text-blue-700 flex items-center gap-1">
+                            <span>{displayNames[finCurrency] || finCurrency}</span>
+                            <span className="font-mono text-[9px] text-slate-400 bg-slate-200/50 px-1 rounded">({isUSDValue ? `$${formatThousandsSeparator(getAssetRate(finCurrency, { currencies: { USD: 1 }, gold: {}, coins: {}, crypto: finRates.crypto }).toString())}` : `${formatPersianCurrency(rateVal)}`})</span>
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="p-3 bg-blue-50 rounded-2xl border border-blue-100 space-y-2">
@@ -3388,23 +3820,39 @@ export default function LegalCalculators() {
                     >
                       <div className="flex items-center gap-1.5">
                         <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingRates ? "animate-spin text-emerald-600" : "animate-spin-slow text-blue-600"}`} />
-                        <span className="underline decoration-dotted underline-offset-4">آخرین بروزرسانی نرخ ارز (لمس برای بروزرسانی آنلاین):</span>
+                        <span className="underline decoration-dotted underline-offset-4">آخرین بروزرسانی نرخ‌ها (لمس برای بروزرسانی آنلاین):</span>
                       </div>
                       <span className="font-mono bg-blue-100 px-1.5 py-0.5 rounded text-blue-900 shrink-0">
                         {isUpdatingRates ? "در حال دریافت..." : finLastUpdate}
                       </span>
                     </button>
-                    <div className="grid grid-cols-2 gap-2 text-[10px] font-black">
-                      <div className="bg-white/60 p-2 rounded-lg text-center text-slate-600">دلار: {formatPersianCurrency(finRates.USD)}</div>
-                      <div className="bg-white/60 p-2 rounded-lg text-center text-slate-600">لیر: {formatPersianCurrency(finRates.TRY)}</div>
+                    <div className="grid grid-cols-3 gap-2 text-[9px] font-black">
+                      <div className="bg-white/60 p-2 rounded-xl border border-slate-100 text-center text-slate-600">
+                        <div>دلار</div>
+                        <div className="text-blue-600 mt-1 font-mono">{formatPersianCurrency(finRates.currencies?.USD || 650000).replace(" ریال", "")}</div>
+                      </div>
+                      <div className="bg-white/60 p-2 rounded-xl border border-slate-100 text-center text-slate-600">
+                        <div>طلا ۱۸ عیار</div>
+                        <div className="text-amber-600 mt-1 font-mono">{formatPersianCurrency(finRates.gold?.geram18 || 34000000).replace(" ریال", "")}</div>
+                      </div>
+                      <div className="bg-white/60 p-2 rounded-xl border border-slate-100 text-center text-slate-600">
+                        <div>سکه امامی</div>
+                        <div className="text-emerald-600 mt-1 font-mono">{formatPersianCurrency(finRates.coins?.sekke || 405000000).replace(" ریال", "")}</div>
+                      </div>
                     </div>
                   </div>
 
                   <button
-                    onClick={() => calculateFinancial(finAmount, finCurrency)}
+                    onClick={() => {
+                      const amountToUse = finAmount || "1";
+                      if (!finAmount) {
+                        setFinAmount("1");
+                      }
+                      calculateFinancial(amountToUse, finCurrency);
+                    }}
                     className="w-full mt-2 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black select-none cursor-pointer transition duration-150 shadow-lg shadow-blue-600/20 active:scale-[0.98]"
                   >
-                    محاسبه و تبدیل ارز
+                    محاسبه و تبدیل دارایی
                   </button>
                 </div>
               </>
@@ -3701,7 +4149,15 @@ export default function LegalCalculators() {
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500">درصد دیه منتخب:</span>
                           <span className="font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-150">
-                            {toPersianDigits(INJURY_DATABASE.find(item => item.id === corpseSelection)?.percentage || 0)}٪ دیه کامل
+                            {(() => {
+                              if (corpseSelection === "d6" || corpseSelection === "d7") {
+                                const engPct = toEnglishDigits(corpseLivingPercentage).replace(/[^0-9.]/g, "");
+                                const pct = parseFloat(engPct) || 0;
+                                const finalPct = pct / 10;
+                                return `${toPersianDigits(finalPct.toString())}٪ (یک‌دهمِ ${toPersianDigits(pct.toString())}٪ دیه زنده)`;
+                              }
+                              return `${toPersianDigits(INJURY_DATABASE.find(item => item.id === corpseSelection)?.percentage || 0)}٪`;
+                            })()} دیه کامل
                           </span>
                         </div>
                       </div>
@@ -3798,6 +4254,85 @@ export default function LegalCalculators() {
                       <div>
                         <span className="text-[10px] text-slate-400 font-bold block">کل فیش هزینه دادرسی (تمبرها و مراجع قضایی):</span>
                         <p className="text-sm font-black text-amber-400 mt-1">{formatPersianCurrency(courtResult.courtFee)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* COMPREHENSIVE LAWYER RECEIPT */}
+              {activeTab === "lawyer_comprehensive" && !compResult && (
+                <div className="py-12 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-2">
+                  <Calculator className="w-8 h-8 text-slate-350 stroke-1" />
+                  <span>محاسبه جامع هزینه‌های دادرسی، حق‌الوکاله و مالیات پرداختی.</span>
+                </div>
+              )}
+              {activeTab === "lawyer_comprehensive" && compResult && (
+                <div className="py-2 space-y-4 animate-fadeIn">
+                  <div className="flex items-center gap-2 text-green-700 bg-green-50 p-3 rounded-xl border border-green-100 text-xs">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>محاسبه جامع هزینه‌های دادرسی و وکالت انجام شد.</span>
+                  </div>
+
+                  <h3 className="text-xs font-black text-slate-800 bg-slate-50 p-2 rounded border border-slate-100 mt-4 mb-2">نتیجه محاسبه</h3>
+
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-2 p-3 bg-white border border-slate-100 rounded-xl text-xs font-bold shadow-sm">
+                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span className="text-slate-600">مرحله رسیدگی:</span>
+                        <span className="text-slate-900 font-black">{compResult.stageName}</span>
+                      </div>
+                      {compResult.isFinancial && (
+                        <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                          <span className="text-slate-600">بهای خواسته:</span>
+                          <span className="text-slate-900 font-black font-mono text-sm">
+                            {formatPersianCurrency(compResult.claimAmount)}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span className="text-slate-600">حق‌الوکاله وکیل:</span>
+                        <span className="text-slate-900 font-black font-mono text-sm">
+                          {formatPersianCurrency(compResult.lawyerFee)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span className="text-slate-600">تمبر مالیاتی (۵٪ حق‌الوکاله):</span>
+                        <span className="text-slate-900 font-black font-mono text-sm">
+                          {formatPersianCurrency(compResult.taxStamp)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span className="text-slate-600">سهم صندوق حمایت (۲.۵٪):</span>
+                        <span className="text-slate-900 font-black font-mono text-sm">
+                          {formatPersianCurrency(compResult.supportFund)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span className="text-slate-600">سهم کانون وکلا (۱.۲۵٪):</span>
+                        <span className="text-slate-900 font-black font-mono text-sm">
+                          {formatPersianCurrency(compResult.barShare)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center pb-1">
+                        <span className="text-slate-600">هزینه دادرسی (تمبرها):</span>
+                        <span className="text-slate-900 font-black font-mono text-sm">
+                          {formatPersianCurrency(compResult.courtFee)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900 text-white p-4 rounded-xl flex items-center justify-between shadow-md">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold block mb-1">مجموع هزینه‌های دادرسی و وکالت:</span>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-base font-black text-amber-400">
+                            {formatPersianCurrency(compResult.totalCosts)}
+                          </span>
+                          <span className="text-xs font-bold text-slate-300">
+                            معادل {formatPersianCurrency(Math.round(compResult.totalCosts / 10)).replace("ریال", "تومان")}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -4052,132 +4587,444 @@ export default function LegalCalculators() {
               )}
 
               {/* 5. FINANCIAL ASSISTANT RECEIPT */}
-              {activeTab === "financial_assistant" && !finResult && (
-                <div className="py-20 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-4 animate-in fade-in">
-                  <TrendingUp className="w-12 h-12 text-blue-100" />
-                  <div className="max-w-[200px]">مبلغ مورد نظر را وارد کرده و دکمه محاسبه را بزنید تا معادل ریالی و تومانی آن را مشاهده کنید.</div>
-                </div>
-              )}
-              {activeTab === "financial_assistant" && finResult && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
-                      <DollarSign className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-black text-blue-600 mb-0.5">مبلغ ورودی ارز</div>
-                      <div className="text-sm font-black text-blue-900 font-mono">
-                        {toPersianDigits(formatThousandsSeparator(finResult.amount.toString()))} {finResult.currency}
+              {activeTab === "financial_assistant" && (
+                <div className="space-y-6 animate-in fade-in duration-300">
+                  
+                  {/* Results section if available */}
+                  {finResult && (
+                    <div id="financial-result-box" className="bg-slate-50 border border-slate-200 rounded-3xl p-5 space-y-4 animate-in fade-in duration-300">
+                      <div className="flex items-center gap-3 bg-blue-100/50 p-4 rounded-2xl border border-blue-200">
+                        <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+                          <DollarSign className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-black text-blue-700 mb-0.5">نتیجه محاسبه و تبدیل</div>
+                          <div className="text-sm font-black text-blue-900 font-mono">
+                            {toPersianDigits(formatThousandsSeparator(finResult.amount.toString()))} {
+                              finResult.currency === "USD" ? "دلار" : finResult.currency === "TRY" ? "لیر" : finResult.currency === "EUR" ? "یورو" : finResult.currency === "GBP" ? "پوند" : finResult.currency === "AED" ? "درهم" : finResult.currency
+                            }
+                          </div>
+                        </div>
                       </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
+                          <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                            <span className="text-[11px] font-black text-slate-500">معادل به ریال ایران:</span>
+                            <span className="text-base font-black text-slate-900 font-mono">{formatPersianCurrency(finResult.irr)}</span>
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-400 leading-relaxed text-right">
+                            {finResult.wordsIrr}
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-2 border border-slate-800">
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                            <span className="text-[11px] font-black text-slate-400">معادل به تومان (رایج):</span>
+                            <span className="text-base font-black text-emerald-400 font-mono">{formatPersianCurrency(finResult.toman).replace("ریال", "تومان")}</span>
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-300 leading-relaxed text-right">
+                            {finResult.wordsToman}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 px-1">
+                        <span>نرخ محاسبه شده مبنا:</span>
+                        <span className="font-mono text-slate-700">{formatPersianCurrency(finResult.rateUsed)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Comprehensive Live Market Rates Dashboard */}
+                  <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        <Globe className="w-4 h-4 text-emerald-600 animate-pulse" />
+                        مشاهده نرخ‌های زنده و لحظه‌ای بازار
+                      </h4>
+                      <span className="text-[9px] font-bold text-slate-400 font-mono">بروزرسانی زنده از TGJU</span>
+                    </div>
+
+                    {/* Sub-tabs for Market Categories */}
+                    <div className="flex flex-wrap bg-slate-100 p-1 rounded-2xl gap-1">
+                      {(["currencies", "gold", "coins", "crypto", "global_domestic"] as const).map((tab) => {
+                        const tabLabels = {
+                          currencies: "ارزها",
+                          gold: "طلا",
+                          coins: "سکه",
+                          crypto: "رمز ارز",
+                          global_domestic: "جهانی و بورس"
+                        };
+                        return (
+                          <button
+                            key={tab}
+                            type="button"
+                            onClick={() => setFinMarketTab(tab)}
+                            className={`flex-1 min-w-[70px] py-1.5 rounded-xl text-[10px] font-black transition-all cursor-pointer text-center select-none ${
+                              finMarketTab === tab
+                                ? "bg-slate-900 text-white shadow-sm"
+                                : "text-slate-500 hover:bg-slate-200"
+                            }`}
+                          >
+                            {tabLabels[tab]}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Market Data Tables */}
+                    <div className="overflow-hidden border border-slate-100 rounded-2xl">
+                      <table className="w-full text-right text-xs">
+                        <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+                          <tr>
+                            <th className="px-4 py-2 text-right">عنوان دارایی</th>
+                            <th className="px-4 py-2 text-left">قیمت / نرخ (ریال یا دلار)</th>
+                            <th className="px-4 py-2 text-center w-16">اقدام</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50 font-medium text-slate-750">
+                          {(() => {
+                            let rows: Array<{ key: string; name: string; value: any; isUSD?: boolean }> = [];
+                            
+                            if (finMarketTab === "currencies") {
+                              rows = [
+                                { key: "USD", name: "💵 دلار آمریکا", value: finRates.currencies?.USD },
+                                { key: "EUR", name: "🇪🇺 یورو اروپا", value: finRates.currencies?.EUR },
+                                { key: "TRY", name: "🇹🇷 لیر ترکیه", value: finRates.currencies?.TRY },
+                                { key: "AED", name: "🇦🇪 درهم امارات", value: finRates.currencies?.AED },
+                                { key: "GBP", name: "🇬🇧 پوند انگلیس", value: finRates.currencies?.GBP }
+                              ];
+                            } else if (finMarketTab === "gold") {
+                              rows = [
+                                { key: "geram18", name: "🪙 طلای ۱۸ عیار (۱ گرم)", value: finRates.gold?.geram18 },
+                                { key: "geram24", name: "🪙 طلای ۲۴ عیار (۱ گرم)", value: finRates.gold?.geram24 },
+                                { key: "mesghal", name: "⚖️ مثقال طلا / مظنه", value: finRates.gold?.mesghal },
+                                { key: "abshodeh", name: "🔥 طلای آبشده نقدی", value: finRates.gold?.abshodeh }
+                              ];
+                            } else if (finMarketTab === "coins") {
+                              rows = [
+                                { key: "sekke", name: "👑 سکه امامی (طرح جدید)", value: finRates.coins?.sekke },
+                                { key: "bahar", name: "🏛️ سکه بهار آزادی (طرح قدیم)", value: finRates.coins?.bahar },
+                                { key: "nim", name: "🌓 نیم سکه بهار آزادی", value: finRates.coins?.nim },
+                                { key: "rob", name: "🌘 ربع سکه بهار آزادی", value: finRates.coins?.rob },
+                                { key: "gerami", name: "🌱 سکه یک گرمی بانک مرکزی", value: finRates.coins?.gerami },
+                                { key: "sekke_retail", name: "🛍️ سکه تک فروشی", value: finRates.coins?.sekke_retail },
+                                { key: "parsian100", name: "🎖️ سکه پارسیان ۱۰۰ میلی‌گرم", value: finRates.coins?.parsian100 },
+                                { key: "parsian500", name: "🎖️ سکه پارسیان ۵۰۰ میلی‌گرم", value: finRates.coins?.parsian500 },
+                                { key: "parsian1000", name: "🎖️ سکه پارسیان ۱۰۰۰ میلی‌گرم", value: finRates.coins?.parsian1000 },
+                                { key: "sekke_bubble", name: "💭 حباب سکه امامی", value: finRates.coins?.sekke_bubble }
+                              ];
+                            } else if (finMarketTab === "crypto") {
+                              rows = [
+                                { key: "btc", name: "🪙 بیت‌کوین (BTC)", value: finRates.crypto?.btc, isUSD: true },
+                                { key: "eth", name: "💎 اتریوم (ETH)", value: finRates.crypto?.eth, isUSD: true },
+                                { key: "sol", name: "☀️ سولانا (SOL)", value: finRates.crypto?.sol, isUSD: true },
+                                { key: "USDT", name: "💵 تتر (USDT)", value: finRates.crypto?.usdt }
+                              ];
+                            } else if (finMarketTab === "global_domestic") {
+                              rows = [
+                                { key: "ons_gold", name: "🟡 اونس جهانی طلا", value: finRates.global_domestic?.ons_gold, isUSD: true },
+                                { key: "ons_silver", name: "🥈 اونس جهانی نقره", value: finRates.global_domestic?.ons_silver, isUSD: true },
+                                { key: "brent_oil", name: "🛢️ نفت برنت جهانی", value: finRates.global_domestic?.brent_oil, isUSD: true },
+                                { key: "tedpix", name: "📈 شاخص کل بورس تهران", value: finRates.global_domestic?.tedpix, isUSD: false }
+                              ];
+                            }
+
+                            return rows.map((row) => (
+                              <tr key={row.key} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-4 py-2.5 font-bold text-slate-700">{row.name}</td>
+                                <td className="px-4 py-2.5 text-left font-mono font-black text-slate-900">
+                                  {row.isUSD 
+                                    ? `$${formatThousandsSeparator(row.value?.toString() || "0")}`
+                                    : row.key === "tedpix" 
+                                      ? toPersianDigits(formatThousandsSeparator(row.value?.toString() || "0"))
+                                      : formatPersianCurrency(row.value || 0)
+                                  }
+                                </td>
+                                <td className="px-4 py-2.5 text-center">
+                                  {row.key !== "tedpix" && !["ons_gold", "ons_silver", "brent_oil"].includes(row.key) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const amountToUse = finAmount || "1";
+                                        if (!finAmount) {
+                                          setFinAmount("1");
+                                        }
+                                        calculateFinancial(amountToUse, row.key);
+                                        // Smooth scroll to the result box
+                                        setTimeout(() => {
+                                          const resultElement = document.getElementById("financial-result-box");
+                                          if (resultElement) {
+                                            resultElement.scrollIntoView({ behavior: "smooth", block: "center" });
+                                          } else {
+                                            window.scrollTo({ top: 350, behavior: "smooth" });
+                                          }
+                                        }, 80);
+                                      }}
+                                      className="px-2 py-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 rounded-lg text-[10px] font-black transition-all cursor-pointer select-none"
+                                    >
+                                      تبدیل
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-300">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
-                      <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                        <span className="text-[11px] font-black text-slate-500">معادل به ریال ایران:</span>
-                        <span className="text-base font-black text-slate-900 font-mono">{formatPersianCurrency(finResult.irr)}</span>
-                      </div>
-                      <div className="text-[11px] font-bold text-slate-400 leading-relaxed text-right">
-                        {finResult.wordsIrr}
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-xl space-y-3 border border-slate-800">
-                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                        <span className="text-[11px] font-black text-slate-400">معادل به تومان (رایج):</span>
-                        <span className="text-base font-black text-emerald-400 font-mono">{formatPersianCurrency(finResult.toman).replace("ریال", "تومان")}</span>
-                      </div>
-                      <div className="text-[11px] font-bold text-slate-300 leading-relaxed text-right">
-                        {finResult.wordsToman}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-[10px] font-bold text-slate-500">
-                    <span>نرخ محاسبه شده:</span>
-                    <span className="font-mono text-slate-700">{formatPersianCurrency(finResult.rateUsed)}</span>
-                  </div>
                 </div>
               )}
 
               {/* 6. DEADLINE RECEIPT */}
-              {activeTab === "deadlines" && !deadlineResult && (
+              {(activeTab === "deadlines" && deadlineView === 'form') && (
                 <div className="py-12 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-2">
                   <Clock className="w-8 h-8 text-slate-350 stroke-1" />
                   <span>محاسبه تاریخ‌های آغازین و واپسین گام دادخواهی را آغاز نمایید.</span>
                 </div>
               )}
-              {activeTab === "deadlines" && deadlineResult && (
-                <div className="py-2 space-y-4 animate-fadeIn">
-                  <div className="flex items-center gap-2 text-green-700 bg-green-50 p-3 rounded-xl border border-green-100 text-xs">
-                    <CheckCircle2 className="w-4 h-4 shrink-0 animate-pulse" />
-                    <span>مواعید قانونی و قضایی با موفقیت محاسبه گردید.</span>
-                  </div>
+              {(activeTab === "deadlines" && deadlineView === 'result') && (() => {
+                const holidayAdjustment = adjustDateForHolidays(deadlineResult.dueDate);
+                const judicialAdjustment = judicialResult ? adjustDateForHolidays(judicialResult.dueDate || judicialResult.endDate) : null;
+                const showExplanation = holidayAdjustment.explanation || (judicialAdjustment && judicialAdjustment.explanation);
 
-                  <div className={judicialDaysInput ? "max-w-md mx-auto w-full" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
-                    {/* Legal Deadline Box - Shown only if no custom judicial deadline is entered */}
-                    {!judicialDaysInput && (
-                      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
-                        <div className="bg-slate-800 text-white px-4 py-3 text-xs font-black flex items-center gap-2">
-                          <Award className="w-4 h-4 text-amber-400" />
-                          مهلت قانونی
+                return (
+                  <div className="py-2 space-y-4 animate-fadeIn">
+                    <button 
+                      onClick={() => setDeadlineView('form')}
+                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-900 font-bold mb-4"
+                    >
+                      <ArrowLeft className="w-3 h-3" />
+                      بازگشت به فرم محاسبه
+                    </button>
+                    <div className="flex items-center gap-2 text-green-700 bg-green-50 p-3 rounded-xl border border-green-100 text-xs">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 animate-pulse" />
+                      <span>مواعید قانونی و قضایی با موفقیت محاسبه گردید.</span>
+                    </div>
+
+                    <div className={judicialDaysInput ? "max-w-md mx-auto w-full" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
+                      {/* Legal Deadline Box - Shown only if no custom judicial deadline is entered */}
+                      {!judicialDaysInput && (
+                        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                          <div className="bg-slate-800 text-white px-4 py-3 text-xs font-black flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Award className="w-4 h-4 text-amber-400" />
+                              مهلت قانونی
+                            </div>
+                            <button
+                              onClick={handleClearDeadline}
+                              className="text-[10px] text-red-400 hover:text-red-300 font-bold px-2 py-0.5 rounded border border-red-900 bg-slate-900"
+                            >
+                              پاک کردن
+                            </button>
+                          </div>
+                          <div className="p-4 flex-1 space-y-3">
+                            <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                              <span>عنوان:</span>
+                              <span className="text-slate-900 truncate max-w-[120px] font-black" title={deadlineResult.typeName}>{deadlineResult.typeName}</span>
+                            </div>
+                            {currentDeadlineOptions.find(opt => opt.title === deadlineType)?.article && (
+                              <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                                <span>مستند قانونی:</span>
+                                <span className="text-slate-900 truncate max-w-[120px] font-black" title={currentDeadlineOptions.find(opt => opt.title === deadlineType)?.article}>
+                                  {currentDeadlineOptions.find(opt => opt.title === deadlineType)?.article}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                              <span>مدت:</span>
+                              <span className="text-slate-900 font-black">
+                                {deadlineType.includes("اعتراض ثالث اصلی") || deadlineType.includes("اعتراض ثالث تبعی")
+                                  ? "فاقد محدودیت زمانی"
+                                  : `${toPersianDigits(deadlineResult.baseDaysCount)} روز`}
+                              </span>
+                            </div>
+                            <div className="pt-2 border-t border-slate-50">
+                              <div className="text-[9px] font-black text-slate-400 mb-1">آخرین مهلت قانونی (آخرین زمان تقدیم لایحه):</div>
+                              <div className="text-sm font-black text-red-600 font-mono text-left">
+                                {deadlineType.includes("اعتراض ثالث اصلی") ? (
+                                  "قبل از اجرای کامل حکم (ماده ۴۲۲ ق.آ.د.م)"
+                                ) : deadlineType.includes("اعتراض ثالث تبعی") ? (
+                                  "تا پایان دادرسی اصلی (ماده ۴۲۱ ق.آ.د.م)"
+                                ) : holidayAdjustment.explanation ? (
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center gap-2 justify-start">
+                                      <span className="text-xs text-slate-400 line-through font-mono">
+                                        {toPersianDigits(deadlineResult.dueDate)}
+                                      </span>
+                                      <span className="text-[9px] bg-red-100 text-red-850 px-1.5 py-0.5 rounded-md font-sans font-black border border-red-200">تعطیل (انتقال به روز کاری)</span>
+                                    </div>
+                                    <div className="text-sm font-black text-red-600 font-mono text-left">
+                                      {holidayAdjustment.adjustedDate}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  toPersianDigits(deadlineResult.dueDate)
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="p-4 flex-1 space-y-3">
-                          <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                            <span>عنوان:</span>
-                            <span className="text-slate-900 truncate max-w-[120px] font-black">{deadlineResult.typeName}</span>
+                      )}
+
+                      {/* Judicial Deadline Box - Shown only if custom judicial deadline is entered */}
+                      {judicialResult && judicialDaysInput && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                          <div className="bg-amber-600 text-white px-4 py-3 text-xs font-black flex items-center gap-2">
+                            <Clock className="w-4 h-4" />
+                            مهلت قضایی سفارشی
                           </div>
-                          <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                            <span>مدت:</span>
-                            <span className="text-slate-900 font-black">{toPersianDigits(deadlineResult.daysCount)} روز</span>
+                          <div className="p-4 flex-1 space-y-3">
+                            <div className="flex justify-between text-[10px] font-bold text-amber-800">
+                              <span>مدت وارد شده:</span>
+                              <span className="text-amber-950 font-black">{toPersianDigits(judicialResult.baseDaysCount)} روز</span>
+                            </div>
+                            <div className="pt-2 border-t border-amber-200/50">
+                              <div className="text-[9px] font-black text-amber-700/60 mb-1">آخرین مهلت قضایی (آخرین زمان اقدام):</div>
+                              <div className="text-sm font-black text-red-600 font-mono text-left">
+                                {judicialAdjustment && judicialAdjustment.explanation ? (
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center gap-2 justify-start">
+                                      <span className="text-xs text-amber-600/65 line-through font-mono">
+                                        {toPersianDigits(judicialResult.dueDate)}
+                                      </span>
+                                      <span className="text-[9px] bg-red-100 text-red-850 px-1.5 py-0.5 rounded-md font-sans font-black border border-red-200">تعطیل (انتقال به روز کاری)</span>
+                                    </div>
+                                    <div className="text-sm font-black text-red-600 font-mono text-left">
+                                      {judicialAdjustment.adjustedDate}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  toPersianDigits(judicialResult.dueDate)
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="pt-2 border-t border-slate-50">
-                            <div className="text-[9px] font-black text-slate-400 mb-1">آخرین مهلت قانونی:</div>
-                            <div className="text-sm font-black text-slate-900 font-mono text-left">{toPersianDigits(deadlineResult.endDate)}</div>
-                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {showExplanation && (
+                      <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-2xl flex gap-2.5 items-start text-right animate-fadeIn">
+                        <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <h4 className="text-[11px] font-black text-blue-900">انتقال موعد به دلیل تعطیلی رسمی یا جمعه:</h4>
+                          <p className="text-[10px] leading-relaxed text-blue-850 font-bold">
+                            {holidayAdjustment.explanation || (judicialAdjustment && judicialAdjustment.explanation)}
+                          </p>
                         </div>
                       </div>
                     )}
 
-                    {/* Judicial Deadline Box - Shown only if custom judicial deadline is entered */}
-                    {judicialResult && judicialDaysInput && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
-                        <div className="bg-amber-600 text-white px-4 py-3 text-xs font-black flex items-center gap-2">
-                          <Clock className="w-4 h-4" />
-                          مهلت قضایی (با احتساب ۲ روز)
-                        </div>
-                        <div className="p-4 flex-1 space-y-3">
-                          <div className="flex justify-between text-[10px] font-bold text-amber-800">
-                            <span>مدت خالص:</span>
-                            <span className="text-amber-950 font-black">{toPersianDigits(judicialResult.daysCount - 2)} روز</span>
-                          </div>
-                          <div className="flex justify-between text-[10px] font-bold text-amber-800">
-                            <span>مدت با ارفاق:</span>
-                            <span className="text-amber-950 font-black">{toPersianDigits(judicialResult.daysCount)} روز</span>
-                          </div>
-                          <div className="pt-2 border-t border-amber-200/50">
-                            <div className="text-[9px] font-black text-amber-700/60 mb-1">آخرین مهلت قضایی:</div>
-                            <div className="text-sm font-black text-red-600 font-mono text-left">{toPersianDigits(judicialResult.endDate)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    {(() => {
+                      const originDate = toPersianDigits(`${deadlineBaseYear}/${deadlineBaseMonth.toString().padStart(2, "0")}/${deadlineBaseDay.toString().padStart(2, "0")}`);
+                      
+                      const hasNoLimit = deadlineType.includes("اعتراض ثالث اصلی") || deadlineType.includes("اعتراض ثالث تبعی");
 
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                     <h4 className="text-[10px] font-black text-slate-800">جزئیات مواعد:</h4>
-                     <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                       <span>تاریخ ابلاغ (روز صفر):</span>
-                       <span className="font-mono">{toPersianDigits(`${deadlineBaseYear}/${deadlineBaseMonth}/${deadlineBaseDay}`)}</span>
-                     </div>
-                     <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                       <span>آغاز شمارش (روز اول):</span>
-                       <span className="font-mono text-slate-800">{toPersianDigits(deadlineResult.startDate)}</span>
-                     </div>
+                      return (
+                        <div className="space-y-4 mt-6">
+                          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                            <div className="bg-slate-100 text-slate-800 px-4 py-3 text-sm font-black text-center border-b border-slate-200">
+                              روند محاسبه
+                            </div>
+                            <div className="p-4 space-y-3 text-xs text-slate-700 leading-relaxed font-medium">
+                              <div className="flex items-start gap-2">
+                                <span className="text-slate-400 mt-0.5">•</span>
+                                <p>تاریخ مبدأ: {originDate}</p>
+                              </div>
+                              <div className="flex items-start gap-2">
+                                <span className="text-slate-400 mt-0.5">•</span>
+                                <p>روز مبدأ در شمارش مهلت لحاظ نشد.</p>
+                              </div>
+                              
+                              {!hasNoLimit ? (
+                                <>
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-slate-400 mt-0.5">•</span>
+                                    <p>
+                                      مهلت {toPersianDigits(judicialDaysInput ? judicialResult.baseDaysCount : deadlineResult.baseDaysCount)} روزه از {toPersianDigits(judicialDaysInput ? judicialResult.startDate : deadlineResult.startDate)} آغاز شد و پس از {toPersianDigits(judicialDaysInput ? judicialResult.baseDaysCount : deadlineResult.baseDaysCount)} روز شمارش، تاریخ {toPersianDigits(judicialDaysInput ? judicialResult.endDate : deadlineResult.endDate)} بدست آمد.
+                                    </p>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-slate-400 mt-0.5">•</span>
+                                    <p>
+                                      تاریخ {toPersianDigits(judicialDaysInput ? judicialResult.endDate : deadlineResult.endDate)} روز اقدام بوده و به عنوان پایان مهلت در نظر گرفته نشد.
+                                    </p>
+                                  </div>
+                                  {!holidayAdjustment.explanation ? (
+                                    <div className="flex items-start gap-2 text-red-600 font-black text-xl">
+                                      <span className="mt-0.5">•</span>
+                                      <p>
+                                        روز بعد یعنی {toPersianDigits(judicialDaysInput ? judicialResult.dueDate : deadlineResult.dueDate)} به عنوان پایان مهلت در نظر گرفته شد.
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="flex items-start gap-2">
+                                        <span className="text-slate-400 mt-0.5">•</span>
+                                        <p>
+                                          روز بعد یعنی {toPersianDigits(deadlineResult.dueDate)} به عنوان پایان مهلت بود اما به دلیل تعطیلی این روز مهلت تغییر یافت.
+                                        </p>
+                                      </div>
+                                      <div className="flex items-start gap-2 text-red-600 font-black text-xl bg-red-50 p-3 rounded-2xl border border-red-100">
+                                        <span className="mt-1">•</span>
+                                        <p>
+                                          به دلیل تعطیلی روز پایان مهلت، مهلت به اولین روز کاری بعد یعنی {toPersianDigits(holidayAdjustment.adjustedDate)} منتقل شد.
+                                        </p>
+                                      </div>
+                                    </>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="flex items-start gap-2">
+                                  <span className="text-slate-400 mt-0.5">•</span>
+                                  <p>
+                                    با توجه به نوع درخواست ({deadlineResult.typeName})، محدودیت زمانی روزشمار برای اقدام وجود ندارد.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                            <div className="bg-slate-100 text-slate-800 px-4 py-3 text-sm font-black text-center border-b border-slate-200">
+                              مستندات
+                            </div>
+                            <div className="p-4 space-y-3 text-xs text-slate-700 leading-relaxed font-medium">
+                              <div className="flex items-start gap-2">
+                                <span className="text-slate-400 mt-0.5">•</span>
+                                <p>از قانون آیین دادرسی دادگاههای عمومی و انقلاب (در امور مدنی) مصوب ۱۳۷۹:</p>
+                              </div>
+                              {currentDeadlineOptions.find(opt => opt.title === deadlineType)?.article && (
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-slate-400 mt-0.5">•</span>
+                                    <p className="font-black text-slate-800">{currentDeadlineOptions.find(opt => opt.title === deadlineType)?.article}:</p>
+                                  </div>
+                                  {currentDeadlineOptions.find(opt => opt.title === deadlineType)?.lawText && (
+                                    <div className="flex items-start gap-2 mr-4 bg-slate-50 p-2 rounded-lg border-l-4 border-slate-300">
+                                      <p className="text-slate-600 leading-relaxed">{currentDeadlineOptions.find(opt => opt.title === deadlineType)?.lawText}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex items-start gap-2">
+                                <span className="text-slate-400 mt-0.5">•</span>
+                                <p>ماده ۴۴۵ قانون آیین دادرسی دادگاههای عمومی و انقلاب (در امور مدنی): موعدی که ابتدای آن تاریخ ابلاغ یا اعلام ذکر شده است، روز ابلاغ و اعلام و همچنین روز اقدام جزء مدت محسوب نمی‌شود.</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {activeTab === "erth" && !erthResult && (
                 <div className="py-12 text-center text-slate-400 text-xs font-bold flex flex-col items-center justify-center space-y-2">
@@ -4443,6 +5290,47 @@ export default function LegalCalculators() {
           </div>
         </div>
       </div>
+
+      {/* --- Legal Deadline Rules Modal --- */}
+      {showDeadlineRules && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn" onClick={() => setShowDeadlineRules(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <h3 className="font-black text-sm text-slate-800 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-amber-500" />
+                مقررات محاسبه مهلت‌ها و مواعد قانونی
+              </h3>
+              <button onClick={() => setShowDeadlineRules(false)} className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-500">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto font-sans text-xs leading-6 text-slate-700 space-y-4">
+              <div className="bg-amber-50 text-amber-900 p-3 rounded-xl border border-amber-200/50">
+                <strong>نکته مهم:</strong> مقررات کلی مربوط به نحوه تعیین، محاسبه و تمدید مهلت‌ها و مواعد قانونی در فصل یازدهم (از باب هشتم) قانون آیین دادرسی دادگاه‌های عمومی و انقلاب در امور مدنی ذیل مواد ۴۴۲ تا ۴۵۳ بیان شده است که پایه و اساس محاسبه مهلت‌های دادرسی مدنی و کیفری هستند.
+              </div>
+              
+              <div className="space-y-3">
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div className="font-bold text-slate-900 mb-1">ماده ۴۴۳:</div>
+                  <p>از نظر احتساب موارد قانونی، سال دوازده ماه، ماه سی روز، هفته هفت روز و شبانه‌روز بیست و چهار ساعت است.</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div className="font-bold text-slate-900 mb-1">ماده ۴۴۴:</div>
+                  <p>چنانچه روز آخر موعد، مصادف با روز تعطیل ادارات باشد و یا به جهت آماده نبودن دستگاه قضایی مربوط امکان اقدامی نباشد، آن روز به حساب نمی‌آید و روز آخر موعد، روزی خواهد بود که ادارات بعد از تعطیل یا رفع مانع باز می‌شوند.</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div className="font-bold text-slate-900 mb-1">ماده ۴۴۵:</div>
+                  <p>موعدی که ابتدای آن تاریخ ابلاغ یا اعلام ذکر شده است، روز ابلاغ و اعلام و همچنین روز اقدام جزء مدت محسوب نمی‌شود.</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div className="font-bold text-slate-900 mb-1">ماده ۴۴۶:</div>
+                  <p>کلیه مواعد مقرر در این قانون از قبیل واخواهی و تکمیل دادخواست برای افراد مقیم خارج از کشور دو ماه از تاریخ ابلاغ می‌باشد.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

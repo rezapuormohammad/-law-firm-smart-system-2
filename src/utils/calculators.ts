@@ -297,6 +297,7 @@ export function calculateJudicialDeadline(
   endDate: string;
   dueDate: string;
   typeName: string;
+  baseDaysCount: number;
 } {
   let daysCount = customDays;
   let typeName = customTypeName || type;
@@ -413,7 +414,6 @@ export function calculateJudicialDeadline(
   };
 
   const dynamicStart = addDaysToJalaliDynamic(jy, jm, jd, 1);
-  let finalDaysCount = daysCount;
   
   // Create Date object for calculating day of week to manage holidays accurately
   // Since we only know Jalali dates mathematically here, we do a very approximate day of week calculation
@@ -446,24 +446,26 @@ export function calculateJudicialDeadline(
   }
 
   // Calculate strict due date
-  let dynamicDue = addDaysToJalaliDynamic(jy, jm, jd, daysCount);
+  // Based on the practical calculation in Iranian judicial system (Sana),
+  // deadlines are calculated as Notification Date + Duration.
+  // Notification Date (Day 0) + Duration = Last Day of Deadline.
+  // Due Date is the day AFTER the Last Day of Deadline.
   
-  // Legal rule: If the final day of the deadline falls on a holiday, the deadline is extended to the next day.
-  let wd = getDayOfWeek(dynamicDue.jy, dynamicDue.jm, dynamicDue.jd);
-  while (wd === 6 || (includeThursdaysAsHoliday && wd === 5)) {
-    finalDaysCount++;
-    dynamicDue = addDaysToJalaliDynamic(jy, jm, jd, finalDaysCount);
-    wd = getDayOfWeek(dynamicDue.jy, dynamicDue.jm, dynamicDue.jd);
-  }
-
-  const dynamicEnd = dynamicDue;
-  dynamicDue = addDaysToJalaliDynamic(dynamicEnd.jy, dynamicEnd.jm, dynamicEnd.jd, 1); // 1st day out of deadline
+  let addedDays = daysCount;
+  let dynamicEnd = addDaysToJalaliDynamic(jy, jm, jd, addedDays);
+  
+  // Last Day of Deadline
+  let lastDayOfDeadline = dynamicEnd;
+  
+  // Due Date is the next day
+  let dueDate = addDaysToJalaliDynamic(lastDayOfDeadline.jy, lastDayOfDeadline.jm, lastDayOfDeadline.jd, 1);
 
   return {
-    daysCount: finalDaysCount,
+    baseDaysCount: daysCount,
+    daysCount: daysCount,
     startDate: formatDate(dynamicStart),
-    endDate: formatDate(dynamicEnd),
-    dueDate: formatDate(dynamicDue),
+    endDate: formatDate(lastDayOfDeadline),
+    dueDate: formatDate(dueDate),
     typeName
   };
 }

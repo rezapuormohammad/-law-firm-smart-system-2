@@ -72,7 +72,7 @@ const INITIAL_CASES: LegalCase[] = [
     caseNumber: "۱۴۰۴۹۱۲۳۴۵۶۷۸۰۰۲",
     archiveNumber: "ک/۴۰۴/۴۵",
     title: "مطالبه وجه سفته واخواست شده",
-    stage: "تجدیدنظر",
+    stage: "تجدید نظر استان",
     branch: "شعبه ۱۵ دادگاه تجدیدنظر استان البرز",
     status: "تجدیدنظر خواهی",
     clientRole: "خوانده",

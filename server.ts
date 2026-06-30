@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { terminologyData } from "./src/data/terminologyData";
 
 dotenv.config();
 
@@ -44,8 +45,8 @@ async function startServer() {
       const cleanCaseNum = toEnDigits(caseNumber).replace(/\D/g, "");
       const cleanNationalId = toEnDigits(nationalId).replace(/\D/g, "");
 
-      if (cleanCaseNum.length !== 16) {
-        return res.status(400).json({ error: "شماره پرونده عدل ایران باید دقیقاً ۱۶ رقم رقمی باشد." });
+      if (cleanCaseNum.length !== 16 && cleanCaseNum.length !== 18) {
+        return res.status(400).json({ error: "شماره پرونده عدل ایران باید ۱۶ یا ۱۸ رقم باشد." });
       }
       if (cleanNationalId.length !== 10) {
         return res.status(400).json({ error: "کدملی باید دقیقاً ۱۰ رقم باشد." });
@@ -53,60 +54,8 @@ async function startServer() {
 
       const caseYear = cleanCaseNum.substring(0, 4);
 
-      const generateFallback = (year: string) => {
-        const subjects = [
-          "مطالبه وجه چک صیادی به همراه خسارت تاخیر تادیه",
-          "الزام به تنظیم سند رسمی انتقال ملک مسکونی",
-          "طرح دعوای مطالبه نفقه معوقه زوجه و حقوق خانواده",
-          "صدور حکم اعسار از پرداخت محکوم‌به به صورت اقساطی",
-          "دعوای خلع ید غاصبانه از پلاک ثبتی و اجرت‌المثل ایام تصرف",
-          "قرار اناطه کیفری در خصوص تصرف عدوانی اراضی"
-        ];
-        const branches = [
-          `شعبه ۱۰۱ دادگاه عمومی حقوقی مجتمع قضایی شهید بهشتی تهران`,
-          `شعبه ۲۴۴ دادگاه خانواده مجتمع قضایی صدر تهران`,
-          `شعبه ۱۰۴۳ دادگاه کیفری دو مجتمع قضایی شهید قدوسی تهران`,
-          `شعبه ۱۲ دادگاه تجدیدنظر استان تهران`,
-          `شعبه ۳ اجرای احکام مدنی دادسرای عمومی و انقلاب ناحیه ۳ تهران`
-        ];
-        const partiesList = [
-          "خواهـان: رضا محمدی - خوانـده: شرکت ساختمانی سدید",
-          "خواهـان: زهرا احمدی - خوانـده: حمید حسینی",
-          "خواهـان: مهران عباسی - خوانـده: بهرام سلطانی",
-          "خواهـان: صبا رضایی - خوانـده: زهرا میرزایی"
-        ];
-        
-        const randomSubject = subjects[parseInt(cleanCaseNum) % subjects.length];
-        const randomBranch = branches[parseInt(cleanCaseNum) % branches.length];
-        const randomParties = partiesList[parseInt(cleanCaseNum) % partiesList.length];
-        const randomArchive = `۰۳۰۰${cleanCaseNum.substring(12, 16)}`;
-
-        return {
-          caseNumber: caseNumber,
-          nationalId: nationalId,
-          caseClass: `${year}۰۹۹۸${cleanCaseNum.substring(4, 12)}`,
-          branch: randomBranch,
-          subject: randomSubject,
-          parties: randomParties,
-          archiveNumber: randomArchive,
-          status: "مفتوح / در حال رسیدگی شعبه",
-          timeline: [
-            { date: `${year}/۰۲/۱۰`, title: "ثبت اولیه دادخواست در دفتر خدمات الکترونیک قضایی" },
-            { date: `${year}/۰۲/۱۵`, title: "تکمیل مدارک و ارجاع رایانه‌ای به مراجع قضایی" },
-            { date: `${year}/۰۲/۲۲`, title: "وصول پرونده به شعبه و ثبت کلاسه در دفتر دادگاه" },
-            { date: `${year}/۰۳/۰۵`, title: `ابلاغیه وقت حضور جهت رسیدگی در تاریخ ${year}/۰۴/۱۲` },
-            { date: `${year}/۰۴/۱۲`, title: "تشکیل جلسه رسیدگی بدوی حضوری با حضور نمایندگان طرفین" },
-            { date: `${year}/۰۵/۰۲`, title: "صدور قرار کارشناسی رسمی دادگستری جهت ارزیابی و قرار معاینه محل" }
-          ],
-          notices: [
-            { id: `${year}-۴۴۰`, date: `${year}/۰۳/۰۵`, subject: "ابلاغ وقت حضور در جلسه دادرسی", status: "ابلاغ واقعی (مشاهده شده)" },
-            { id: `${year}-۸۷۲`, date: `${year}/۰۵/۰۴`, subject: "ابلاغ قرار ارجاع امر به کارشناس", status: "ابلاغ قانونی (کارتابل ثنا)" }
-          ]
-        };
-      };
-
       if (!ai) {
-        return res.json(generateFallback(caseYear));
+        return res.status(500).json({ error: "سرویس استعلام دادگستری فعال نیست. لطفاً API Key را در تنظیمات وارد کنید." });
       }
 
       const prompt = `شما وب‌سرویس بک‌اند Adliran قوه قضائیه هستید.
@@ -130,7 +79,7 @@ async function startServer() {
   ]
 }`;
 
-      const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro"];
+      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
       
       let finalResult = null;
       for (const modelName of modelsToTry) {
@@ -146,7 +95,13 @@ async function startServer() {
           finalResult = JSON.parse(result.text || "{}");
           break;
         } catch (err: any) {
-          console.warn(`Model ${modelName} failed for Adliran extraction, trying next...: ${err.message || err}`);
+          const errMsg = err.message || String(err);
+          const isQuota = errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("QUOTA_EXHAUSTED");
+          if (isQuota) {
+            console.warn(`[Adliran Service] Model ${modelName} is temporarily rate-limited (429 Quota Exceeded).`);
+          } else {
+            console.warn(`[Adliran Service] Model ${modelName} is unavailable: ${errMsg.substring(0, 100)}`);
+          }
         }
       }
 
@@ -157,25 +112,7 @@ async function startServer() {
       res.json(finalResult);
     } catch (e: any) {
       console.error("Adliran Service Error:", e);
-      const cleanCaseNum = caseNumber ? caseNumber.replace(/\D/g, "") : "1403000000000000";
-      const caseYear = cleanCaseNum.substring(0, 4) || "1403";
-      res.json({
-        caseNumber: caseNumber || "۱۴۰۳۹۸۷۶۵۴۳۲۱۰۰۱",
-        nationalId: nationalId || "۰۰۸۷۶۵۴۳۲۱",
-        caseClass: `${caseYear}۰۹۹۸${cleanCaseNum.substring(4, 12) || "۱۲۳۴۵۶"}`,
-        branch: "شعبه ۱۰۱ دادگاه عمومی حقوقی تهران",
-        subject: "مطالبه وجه و خسارت علی‌القاعده دادرسی",
-        parties: "خواهـان: حسین اکبری - خوانـده: امید زارعی",
-        archiveNumber: "۰۳۰۰۲۳۴",
-        status: "مفتوح - تحت نظر دادگاه",
-        timeline: [
-          { date: `${caseYear}/۰۱/۱۵`, title: "ثبت رایانه‌ای دادخواست ثنا" },
-          { date: `${caseYear}/۰۱/۲۰`, title: "ارجاع پرونده به شعبه ۱۰۱ بدوی حقوقی" }
-        ],
-        notices: [
-          { id: `${caseYear}-۱۰۸`, date: `${caseYear}/۰۱/۲۲`, subject: "ابلاغ وقت دادرسی", status: "ابلاغ قانونی" }
-        ]
-      });
+      res.status(500).json({ error: "خطا در برقراری ارتباط با سرویس استعلام. لطفاً مجدداً تلاش کنید." });
     }
   });
 
@@ -298,6 +235,410 @@ async function startServer() {
     }
   });
 
+  // API endpoint for dynamic authentic law article retrieval
+  app.post("/api/laws/retrieve_article", async (req, res) => {
+    try {
+      const { lawTitle, articleNumber, mode } = req.body;
+      if (!lawTitle || !articleNumber) {
+        return res.status(400).json({ error: "عنوان قانون و شماره مورد نظر الزامی هستند." });
+      }
+
+      if (!ai) {
+        return res.status(500).json({ error: "کلید API جمینی متصل نشده است. لطفاً از بخش تنظیمات اقدام کنید." });
+      }
+
+      let prompt = "";
+      if (mode === "ara-vahdat") {
+        prompt = `شما وب‌سرویس بانک اطلاعات قضایی و آرا وحدت رویه دیوان عالی کشور ایران هستید.
+کاربر می‌خواهد متن دقیق و رسمی رای وحدت رویه زیر را استخراج کند:
+عنوان یا موضوع: [${lawTitle}]
+شماره رای درخواستی: [${articleNumber}]
+
+لطفاً متن رسمی، معتبر و بدون تحریف این رای وحدت رویه را به همراه خلاصه تصمیم و استدلال قانونی هیات عمومی به زبان فارسی خروجی دهید.
+فقط و فقط یک آبجکت JSON معتبر (بدون هیچ مارک‌داون یا توضیح اضافی و بدون تگهای متنی دور آن) با مشخصات زیر خروجی دهید:
+{
+  "number": ${parseInt(articleNumber) || 1},
+  "text": "متن رسمی رای وحدت رویه، استدلال قانونی و نتیجه نهایی هیات عمومی دیوان عالی کشور"
+}`;
+      } else if (mode === "nazariat") {
+        prompt = `شما وب‌سرویس بانک اطلاعات نظریات مشورتی اداره کل حقوقی قوه قضاییه ایران هستید.
+کاربر می‌خواهد متن دقیق و معتبر نظریه مشورتی زیر را استخراج کند:
+عنوان یا موضوع: [${lawTitle}]
+شماره نظریه یا مورد درخواستی: [${articleNumber}]
+
+لطفاً متن رسمی پرسش و پاسخ مستدل و معتبر این نظریه مشورتی را به زبان فارسی خروجی دهید.
+فقط و فقط یک آبجکت JSON معتبر (بدون هیچ مارک‌داون یا توضیح اضافی و بدون تگهای متنی دور آن) با مشخصات زیر خروجی دهید:
+{
+  "number": ${parseInt(articleNumber) || 1},
+  "text": "متن مستدل و رسمی پرسش و پاسخ نظریه مشورتی اداره کل حقوقی قوه قضائیه"
+}`;
+      } else {
+        prompt = `شما وب‌سرویس بانک اطلاعات قوانین و مقررات کشور ایران هستید.
+کاربر می‌خواهد متن دقیق و رسمی ماده قانونی زیر را استخراج کند:
+قانون: [${lawTitle}]
+ماده: [${articleNumber}]
+
+لطفاً متن رسمی، دقیق، بدون تحریف و معتبر این ماده را به همراه تبصره‌های احتمالی آن به زبان فارسی خروجی دهید.
+فقط و فقط یک آبجکت JSON معتبر (بدون هیچ مارک‌داون یا توضیح اضافی و بدون تگهای متنی دور آن) با مشخصات زیر خروجی دهید:
+{
+  "number": ${parseInt(articleNumber) || 1},
+  "text": "متن رسمی ماده قانونی به همراه تبصره‌های آن در صورت وجود"
+}`;
+      }
+
+      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
+      let finalResult = null;
+
+      for (const modelName of modelsToTry) {
+        try {
+          const result = await ai.models.generateContent({
+            model: modelName,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: {
+              temperature: 0.1,
+              tools: [{ googleSearch: {} }] // Add search grounding for absolute authenticity!
+            }
+          });
+          
+          let responseText = result.text || "";
+          
+          // Helper function to extract JSON from any text response
+          const extractJSON = (text: string) => {
+            try {
+              return JSON.parse(text.trim());
+            } catch (e) {
+              // try to find code blocks
+              const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+              if (match) {
+                try {
+                  return JSON.parse(match[1].trim());
+                } catch (err) {}
+              }
+              // try to find first { and last }
+              const firstBrace = text.indexOf("{");
+              const lastBrace = text.lastIndexOf("}");
+              if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                try {
+                  return JSON.parse(text.substring(firstBrace, lastBrace + 1));
+                } catch (err) {}
+              }
+              throw new Error("Could not parse JSON from response");
+            }
+          };
+
+          finalResult = extractJSON(responseText);
+          if (finalResult && finalResult.text) {
+             break;
+          }
+        } catch (err: any) {
+          const errMsg = err.message || String(err);
+          const isQuota = errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("QUOTA_EXHAUSTED");
+          if (isQuota) {
+            console.warn(`[Law Service] Model ${modelName} is temporarily rate-limited (429 Quota Exceeded).`);
+          } else {
+            console.warn(`[Law Service] Model ${modelName} is unavailable: ${errMsg.substring(0, 100)}`);
+          }
+        }
+      }
+
+      if (!finalResult || !finalResult.text) {
+        throw new Error("داده‌ای یافت نشد");
+      }
+
+      res.json(finalResult);
+    } catch (e: any) {
+      console.error("Law Retrieval Error:", e);
+      res.status(500).json({ error: "خطا در استخراج متن ماده قانونی زنده. لطفاً صحت اطلاعات را بررسی کنید." });
+    }
+  });
+
+  // API endpoint for parsing custom law documents from PDF with Gemini
+  app.post("/api/laws/parse-pdf", async (req, res) => {
+    try {
+      const { base64, fileName } = req.body;
+      if (!base64) {
+        return res.status(400).json({ error: "محتوای فایل ارسالی خالی است." });
+      }
+
+      if (!ai) {
+        return res.status(500).json({ error: "سرویس هوشمند پارسر پی‌دی‌اف غیرفعال است (کلید هوش مصنوعی متصل نیست)." });
+      }
+
+      console.info(`[PDF Parser] Parsing PDF: ${fileName || "unnamed.pdf"}`);
+
+      const prompt = `شما یک هوش مصنوعی تحلیل‌گر اسناد حقوقی و قوانین ایران هستید.
+وظیفه شما این است که محتوای پیوست شده (یک سند پی‌دی‌اف قانون) را تحلیل کنید و آن را به یک ساختار قوانین استاندارد و معتبر JSON (فقط و فقط یک آبجکت معتبر JSON بدون هیچ مارک‌داون یا توضیح اضافی و بدون تگ‌های متنی دور آن) تبدیل کنید.
+
+ساختار خروجی JSON نهایی باید دقیقاً به شکل زیر باشد:
+{
+  "title": "عنوان کلی قانون (مثلاً: قانون حمایت از خانواده یا قانون مالیات‌های مستقیم)",
+  "description": "توضیح کوتاه در مورد این قانون یا سال تصویب آن",
+  "chapters": [
+    {
+      "title": "عنوان فصل (مثلاً: فصل اول - کلیات، یا بخش نخست)",
+      "articles": [
+        {
+          "number": 1,
+          "text": "متن کامل ماده قانونی (مثلاً: ماده ۱ - هرگاه کسی...)",
+          "notes": "نکات یا تبصره‌های مربوط به این ماده در صورت وجود (اختیاری)"
+        }
+      ]
+    }
+  ]
+}
+
+نکات بسیار مهم:
+۱. خروجی فقط و فقط باید یک آبجکت معتبر JSON باشد. هیچ کاراکتر اضافی، توضیح در ابتدا یا انتها، یا تگ \`\`\`json در پاسخ وجود نداشته باشد.
+۲. تمام کلمات، عنوان‌ها، بخش‌ها و بندها را به فارسی روان و دقیق با شماره مواد قانونی و تبصره‌ها استخراج کنید.
+۳. در صورتی که ساختار سند فاقد فصل‌بندی بود، یک فصل فرضی به نام "بخش عمومی" ایجاد کنید و تمام مواد را درون قرار دهید تا ساختار درخواستی رعایت شود.`;
+
+
+      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
+      let responseText = "";
+      
+      for (const modelName of modelsToTry) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: [
+              {
+                inlineData: {
+                  data: base64,
+                  mimeType: "application/pdf"
+                }
+              },
+              { text: prompt }
+            ],
+            config: {
+              temperature: 0.1,
+              responseMimeType: "application/json"
+            }
+          });
+          responseText = response.text || "";
+          if (responseText) {
+            break;
+          }
+        } catch (err: any) {
+          const errMsg = err.message || String(err);
+          const isQuota = errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("QUOTA_EXHAUSTED");
+          if (isQuota) {
+            console.warn(`[PDF Parser] Model ${modelName} is temporarily rate-limited (429 Quota Exceeded).`);
+          } else {
+            console.warn(`[PDF Parser] Model ${modelName} is unavailable: ${errMsg.substring(0, 100)}`);
+          }
+        }
+      }
+
+      if (!responseText) {
+        throw new Error("پاسخی از هوش مصنوعی دریافت نشد.");
+      }
+
+      // Helper function to extract JSON
+      const cleanJson = (text: string) => {
+        try {
+          const startIdx = text.indexOf("{");
+          const endIdx = text.lastIndexOf("}");
+          if (startIdx !== -1 && endIdx !== -1) {
+            return JSON.parse(text.substring(startIdx, endIdx + 1));
+          }
+          return JSON.parse(text);
+        } catch (err) {
+          return null;
+        }
+      };
+
+      const parsed = cleanJson(responseText);
+      if (!parsed || !parsed.title || !parsed.chapters) {
+        return res.status(500).json({ error: "خطا در قالب‌بندی هوشمند قوانین داخل فایل PDF. لطفاً از صحت و خوانایی متن فایل مطمئن شوید." });
+      }
+
+      res.json({ success: true, data: parsed });
+
+    } catch (e: any) {
+      console.error("[PDF Parser Error]:", e);
+      res.status(500).json({ error: e.message || "خطا در تحلیل سند پی‌دی‌اف." });
+    }
+  });
+
+  // API endpoint for Farsi Dictionary (Farhang-backend integration and AI fallback)
+  app.get("/api/dictionary/search", async (req, res) => {
+    try {
+      const q = req.query.q as string;
+      if (!q) {
+        return res.status(400).json({ error: "واژه مورد نظر ارسالی خالی است." });
+      }
+
+      
+      // A. Try a quick, exact local search in Dr Jafari Langroudi's terminology first!
+      // This is extremely fast and completely avoids external network requests and Gemini rate-limits.
+      // Removed per user request to prefer online search.
+      /*
+      const exactLocalMatches = terminologyData
+        .filter(entry => 
+          entry.term.trim().toLowerCase() === q.trim().toLowerCase()
+        )
+        .map(entry => ({
+          word: entry.term,
+          definition: entry.definition,
+          source: "ترمینولوژی حقوقی (دکتر جعفری لنگرودی)",
+          pronunciation: "",
+          examples: []
+        }));
+
+      if (exactLocalMatches.length > 0) {
+        return res.json({
+          results: exactLocalMatches,
+          sourceType: "local"
+        });
+      }
+      */
+
+      // API search removed to rely directly on Gemini.
+      // B. Smart partial local search before hitting Gemini!
+      // If the query contains or is contained by a term in our high-quality legal dictionary,
+      // return it immediately to completely bypass Gemini rate-limits.
+      // Removed per user request to prefer online search.
+      /*
+      const localMatches = terminologyData
+        .filter(entry => 
+          entry.term.toLowerCase().includes(q.trim().toLowerCase()) || 
+          q.trim().toLowerCase().includes(entry.term.toLowerCase())
+        )
+        .map(entry => ({
+          word: entry.term,
+          definition: entry.definition,
+          source: "ترمینولوژی حقوقی (دکتر جعفری لنگرودی)",
+          pronunciation: "",
+          examples: []
+        }));
+
+      if (localMatches.length > 0) {
+        return res.json({
+          results: localMatches,
+          sourceType: "local"
+        });
+      }
+      */
+
+      // 2. Fallback: Use Gemini (without tools configuration to prevent JSON response type conflicts)
+      let aiResult: any = null;
+      if (ai) {
+        const prompt = `شما وب‌سرویس لغت‌نامه فارسی و حقوقی ایران هستید.
+کاربر عبارت یا واژه [${q}] را جستجو کرده است.
+بر اساس منابع اصیل لغت‌نامه دهخدا، فرهنگ معین، فرهنگ عمید و ترمینولوژی حقوقی لنگرودی، پاسخ را به عنوان یک آبجکت معتبر JSON (فقط و فقط یک آبجکت معتبر JSON بدون هیچ مارک‌داون یا توضیح اضافی و بدون تگهای متنی دور آن) به زبان فارسی به فرمت زیر برگردانید.
+
+اگر واژه جنبه حقوقی دارد، حتماً موارد زیر را با دقت استخراج کنید:
+1. ماده قانونی مربوطه در فیلد legalArticle.
+2. وضعیت قابل گذشت بودن جرم در فیلد isCompoundable.
+3. وضعیت مالی یا غیرمالی بودن دعوی در فیلد isFinancial.
+4. **بسیار مهم**: کلیه آرای وحدت رویه مرتبط (judicialPrecedents)، کلیه نظریات مشورتی حقوقی مرتبط (advisoryOpinions) و کلیه آرای اصراری (persistentRulings) را پیدا کنید. برای هر مورد، حتماً "عنوان دقیق" و "متن کامل و دقیق" آن را در لیست‌های مربوطه قرار دهید. (مثلاً برای واژه‌ای مثل "دیه" چندین رای و نظریه وجود دارد که باید همگی لیست شوند).
+
+فرمت پاسخ:
+{
+  "results": [
+    {
+      "word": "واژه پیدا شده",
+      "definition": "تعریف یا معنی دقیق لغوی یا اصطلاحی واژه بر اساس منبع",
+      "legalArticle": "ماده قانونی مربوطه (در صورت وجود، در غیر این صورت null)",
+      "isCompoundable": "وضعیت قابل گذشت بودن (قابل گذشت / غیر قابل گذشت / null)",
+      "isFinancial": "وضعیت مالی یا غیرمالی بودن دعوی (مالی / غیرمالی / null)",
+      "judicialPrecedents": [
+        { "title": "عنوان دقیق رای وحدت رویه", "fullText": "متن کامل و جامع رای" }
+      ],
+      "advisoryOpinions": [
+        { "title": "عنوان دقیق نظریه مشورتی", "fullText": "متن کامل و جامع نظریه" }
+      ],
+      "persistentRulings": [
+        { "title": "عنوان دقیق رای اصراری", "fullText": "متن کامل و جامع رای" }
+      ],
+      "source": "نام فرهنگ لغت منبع",
+      "pronunciation": "تلفظ یا آوانگاری واژه",
+      "examples": ["نمونه استفاده در متن"]
+    }
+  ]
+}`;
+
+        const modelsToTry = ["gemini-3.1-flash-lite", "gemini-1.5-flash"];
+
+        for (const modelName of modelsToTry) {
+          try {
+            const result = await ai.models.generateContent({
+              model: modelName,
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              config: {
+                temperature: 0.2,
+                responseMimeType: "application/json"
+              }
+            });
+            
+            let responseText = result.text || "";
+            
+            // Helper function to extract JSON
+            const cleanJson = (text: string) => {
+              try {
+                const startIdx = text.indexOf("{");
+                const endIdx = text.lastIndexOf("}");
+                if (startIdx !== -1 && endIdx !== -1) {
+                  return JSON.parse(text.substring(startIdx, endIdx + 1));
+                }
+                return JSON.parse(text);
+              } catch (err) {
+                return null;
+              }
+            };
+
+            const parsed = cleanJson(responseText);
+            if (parsed && (parsed.results || Array.isArray(parsed))) {
+              aiResult = parsed;
+              break;
+            }
+          } catch (err: any) {
+            const errMsg = err.message || String(err);
+            const isQuota = errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("QUOTA_EXHAUSTED");
+            if (isQuota) {
+              console.warn(`[Dictionary Service] Model ${modelName} is temporarily rate-limited (429 Quota Exceeded).`);
+            } else {
+              console.warn(`[Dictionary Service] Model ${modelName} is unavailable: ${errMsg.substring(0, 100)}`);
+            }
+          }
+        }
+      }
+
+      if (aiResult) {
+        let finalResults = [];
+        if (Array.isArray(aiResult)) {
+          finalResults = aiResult;
+        } else if (aiResult.results && Array.isArray(aiResult.results)) {
+          finalResults = aiResult.results;
+        }
+
+        if (finalResults.length > 0) {
+          return res.json({
+            results: finalResults,
+            sourceType: "ai"
+          });
+        }
+      }
+
+      // 3. Elegant offline fallback message so the UI doesn't crash on rate limits or failures
+      return res.json({
+        results: [
+          {
+            word: q,
+            definition: `متأسفانه در حال حاضر امکان جستجوی آنلاین واژه «${q}» وجود ندارد. لطفاً دقایقی دیگر مجدداً تلاش نمایید.`,
+            source: "پشتیبان سیستم",
+            pronunciation: "",
+            examples: []
+          }
+        ],
+        sourceType: "offline"
+      });
+    } catch (e: any) {
+      console.error("Dictionary Service Error:", e);
+      res.status(500).json({ error: "خطا در واژه‌نامه برخط." });
+    }
+  });
+
   // API endpoint for Gemini client
   app.post("/api/gemini/chat", async (req, res) => {
     try {
@@ -310,7 +651,7 @@ async function startServer() {
       }
 
       const sysInstruction = systemInstruction || "شما یک دستیار هوش مصنوعی حقوقی هوشمند و حرفه‌ای هستید که به وکیل پایه یک دادگستری، آقای رضا پورمحمد، در تحلیل قوانین ایران، دعاوی، محاسبات دیه، مهریه و تنظیم لایحه کمک می‌کنید. پاسخ‌ها را دقیق، مستند به مواد قانونی مرتبط و با لحنی رسمی و محترمانه به زبان فارسی ارائه دهید.";
-      const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro"];
+      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
       
       let finalResponseText = "";
       for (const modelName of modelsToTry) {
@@ -331,7 +672,13 @@ async function startServer() {
             finalResponseText = result.text || "";
             break; // Success
          } catch(err: any) {
-            console.warn(`Model ${modelName} failed, trying next...: ${err.message || err}`);
+            const errMsg = err.message || String(err);
+            const isQuota = errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("QUOTA_EXHAUSTED");
+            if (isQuota) {
+              console.warn(`[Chat Service] Model ${modelName} is temporarily rate-limited (429 Quota Exceeded).`);
+            } else {
+              console.warn(`[Chat Service] Model ${modelName} is unavailable: ${errMsg.substring(0, 100)}`);
+            }
          }
       }
 
@@ -346,270 +693,326 @@ async function startServer() {
     }
   });
 
-  // API endpoint for currency rate updates
-  app.post("/api/currency/rates", async (req, res) => {
-    // Helper to convert Persian/Arabic digits to English digits
-    function toEnglishDigits(str: string): string {
-      const persianDigits = [/۰/g, /۱/g, /۲/g, /۳/g, /۴/g, /۵/g, /۶/g, /۷/g, /۸/g, /۹/g];
-      const arabicDigits = [/٠/g, /١/g, /٢/g, /٣/g, /٤/g, /٥/g, /٦/g, /٧/g, /٨/g, /٩/g];
-      let result = str;
-      for (let i = 0; i < 10; i++) {
-        result = result.replace(persianDigits[i], String(i)).replace(arabicDigits[i], String(i));
-      }
-      return result;
-    }
-
-    // Get current Tehran Persian Date
-    function getTehranPersianDate(): string {
-      try {
-        return new Intl.DateTimeFormat("fa-IR", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          calendar: "persian",
-          timeZone: "Asia/Tehran"
-        }).format(new Date());
-      } catch (e) {
-        return "۱۴۰۵/۰۴/۰۴ ۱۰:۳۰";
-      }
-    }
-
-    // Fetch rates from free brsapi.ir endpoint
-    async function fetchBrsapiRates(): Promise<{ USD: number; TRY: number } | null> {
-      const url = "https://api.brsapi.ir/v2/free/currency";
-      try {
-        const response = await fetch(url, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json"
-          },
-          signal: AbortSignal.timeout(2500)
-        });
-
-        if (!response.ok) {
-          return null;
-        }
-
-        const json = await response.json() as any;
-        if (json && json.status === true && json.currency) {
-          const usdVal = json.currency.price_dollar_rl?.value;
-          const tryVal = json.currency.price_try?.value;
-          if (usdVal && tryVal) {
-            return {
-              USD: Number(usdVal),
-              TRY: Number(tryVal)
-            };
-          }
-        }
-        return null;
-      } catch (error: any) {
-        return null;
-      }
-    }
-
-    // Fetch real-time global USD/TRY exchange rate to use as cross-rate calculation fallback
-    async function fetchGlobalUsdTryRate(): Promise<number | null> {
-      const url = "https://open.er-api.com/v6/latest/USD";
-      try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
-        if (response.ok) {
-          const data = await response.json() as any;
-          if (data && data.rates && data.rates.TRY) {
-            return Number(data.rates.TRY);
-          }
-        }
-      } catch (err) {
-        // silent
-      }
-      return null;
-    }
-
-    // Scrape a specific tgju currency profile
-    async function scrapeTgjuRate(symbol: string): Promise<number | null> {
-      const url = `https://www.tgju.org/profile/${symbol}`;
-      try {
-        const response = await fetch(url, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"
-          },
-          signal: AbortSignal.timeout(2500)
-        });
-
-        if (!response.ok) {
-          return null;
-        }
-
-        const html = await response.text();
-
-        // Look for data-value="..." attribute
-        const dataValueMatch = html.match(/data-value=["']([\d,۰۱۲۳۴۵۶۷۸۹]+)["']/i);
-        if (dataValueMatch) {
-          const cleanVal = toEnglishDigits(dataValueMatch[1]).replace(/[^\d]/g, '');
-          const num = parseInt(cleanVal, 10);
-          if (!isNaN(num) && num > 100) return num;
-        }
-
-        // Look for class="value" matches
-        const valueMatches = html.matchAll(/class=["']value["'][^>]*>([\s\S]*?)<\/span>/gi);
-        for (const match of valueMatches) {
-          const textOnly = match[1].replace(/<[^>]*>/g, '').trim();
-          const cleanVal = toEnglishDigits(textOnly).replace(/[^\d]/g, '');
-          const num = parseInt(cleanVal, 10);
-          if (!isNaN(num) && num > 100) return num;
-        }
-
-        return null;
-      } catch (error: any) {
-        return null;
-      }
-    }
-
-    // Scrape tgju homepage
-    async function scrapeTgjuHomepage(): Promise<{ USD: number; TRY: number } | null> {
-      const url = "https://www.tgju.org/";
-      try {
-        const response = await fetch(url, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8"
-          },
-          signal: AbortSignal.timeout(2500)
-        });
-
-        if (!response.ok) return null;
-        const html = await response.text();
-
-        let usd: number | null = null;
-        let tryRate: number | null = null;
-
-        // Extract USD
-        const usdBlock = html.match(/data-market-row=["']price_dollar_rl["']([\s\S]*?)<\/tr>/i);
-        if (usdBlock) {
-          const valMatch = usdBlock[1].match(/class=["']value["'][^>]*>([\s\S]*?)<\/span>/i) || usdBlock[1].match(/>([\s\S]*?)</);
-          if (valMatch) {
-            const textOnly = valMatch[1].replace(/<[^>]*>/g, '').trim();
-            const val = parseInt(toEnglishDigits(textOnly).replace(/[^\d]/g, ''), 10);
-            if (!isNaN(val) && val > 0) usd = val;
-          }
-        }
-
-        // Extract TRY
-        const tryBlock = html.match(/data-market-row=["']price_try["']([\s\S]*?)<\/tr>/i);
-        if (tryBlock) {
-          const valMatch = tryBlock[1].match(/class=["']value["'][^>]*>([\s\S]*?)<\/span>/i) || tryBlock[1].match(/>([\s\S]*?)</);
-          if (valMatch) {
-            const textOnly = valMatch[1].replace(/<[^>]*>/g, '').trim();
-            const val = parseInt(toEnglishDigits(textOnly).replace(/[^\d]/g, ''), 10);
-            if (!isNaN(val) && val > 0) tryRate = val;
-          }
-        }
-
-        if (usd && tryRate) {
-          return { USD: usd, TRY: tryRate };
-        }
-        return null;
-      } catch (error: any) {
-        return null;
-      }
-    }
-
+  // API endpoint for audio transcription
+  app.post("/api/gemini/transcribe", async (req, res) => {
     try {
-      const { clientTime } = req.body;
-      const formattedToday = getTehranPersianDate();
+      if (!ai) {
+        return res.status(500).json({ error: "کلید API جمینی متصل نشده است." });
+      }
       
-      // Initialize with default rates and current Persian date
-      let rates = { 
-        USD: 650000, 
-        TRY: 20000, 
-        date: formattedToday 
-      };
+      const { audioData, mimeType } = req.body; // audioData should be base64 string
+      if (!audioData) {
+         return res.status(400).json({ error: "داده‌های صوتی یافت نشد." });
+      }
 
-      console.log("Starting concurrent currency rates fetch...");
-      const results = await Promise.allSettled([
-        fetchBrsapiRates(),
-        scrapeTgjuHomepage(),
-        scrapeTgjuRate("price_dollar_rl"),
-        scrapeTgjuRate("price_try"),
-        fetchGlobalUsdTryRate()
-      ]);
+      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
+      let finalResponseText = "";
 
-      const brsapiRates = results[0].status === "fulfilled" ? results[0].value : null;
-      const homepageRates = results[1].status === "fulfilled" ? results[1].value : null;
-      const scrapedUsd = results[2].status === "fulfilled" ? results[2].value : null;
-      const scrapedTry = results[3].status === "fulfilled" ? results[3].value : null;
-      const globalUsdTry = results[4].status === "fulfilled" ? results[4].value : null;
-
-      let usdFound = false;
-      let tryFound = false;
-
-      // 1. Check Brsapi
-      if (brsapiRates) {
-        rates.USD = brsapiRates.USD;
-        rates.TRY = brsapiRates.TRY;
-        usdFound = true;
-        tryFound = true;
-        console.log("Rates retrieved from Brsapi:", rates);
-      } 
-      // 2. Check TGJU homepage
-      else if (homepageRates) {
-        rates.USD = homepageRates.USD;
-        rates.TRY = homepageRates.TRY;
-        usdFound = true;
-        tryFound = true;
-        console.log("Rates retrieved from homepage:", rates);
-      } 
-      // 3. Check individual profiles or global fallback
-      else {
-        if (scrapedUsd) {
-          rates.USD = scrapedUsd;
-          usdFound = true;
+      for (const modelName of modelsToTry) {
+        try {
+          const result = await ai.models.generateContent({
+            model: modelName,
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { 
+                    inlineData: {
+                      data: audioData,
+                      mimeType: mimeType || "audio/webm"
+                    }
+                  },
+                  { text: "لطفاً این صدای ضبط شده را که به زبان فارسی است به دقت پیاده‌سازی و متن نویسی کن. فقط و فقط متن را بدون هیچ توضیح اضافه‌ای بنویس. این یادداشت یک وکیل است." }
+                ]
+              }
+            ],
+            config: {
+              temperature: 0.1, // low temp for accurate transcription
+            }
+          });
+          finalResponseText = result.text || "";
+          break; // Success
+        } catch (err: any) {
+          const errMsg = err.message || String(err);
+          const isQuota = errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("QUOTA_EXHAUSTED");
+          if (isQuota) {
+            console.warn(`[Transcription Service] Model ${modelName} is temporarily rate-limited (429 Quota Exceeded).`);
+          } else {
+            console.warn(`[Transcription Service] Model ${modelName} is unavailable: ${errMsg.substring(0, 100)}`);
+          }
         }
-        if (scrapedTry) {
-          rates.TRY = scrapedTry;
-          tryFound = true;
-        }
+      }
 
-        // Apply cross-rate if only USD or baseline USD is used
-        if (globalUsdTry) {
-          console.log(`Applying cross-rate reference: ${globalUsdTry}`);
-          if (usdFound && !tryFound) {
-            rates.TRY = Math.round(rates.USD / globalUsdTry);
-            tryFound = true;
-          } else if (!usdFound && !tryFound) {
-            // Apply to baseline USD
-            rates.TRY = Math.round(rates.USD / globalUsdTry);
-            tryFound = true;
+      if (!finalResponseText) {
+         throw new Error("تمامی مدل‌های تبدیل صوت به متن با محدودیت مواجه شدند.");
+      }
+
+      res.json({ text: finalResponseText });
+    } catch (e: any) {
+      console.error("Gemini Transcription Error:", e);
+      res.status(500).json({ error: e.message || "خطا در برقراری ارتباط با مدل هوش مصنوعی." });
+    }
+  });
+
+  // Cache for currency/market rates to make updates lightning fast
+  let ratesCache: any = null;
+  let ratesCacheTime: number = 0;
+  let isFetchingRates = false;
+
+  // Helper to convert Persian/Arabic digits to English digits
+  function toEnglishDigits(str: string): string {
+    const persianDigits = [/۰/g, /۱/g, /۲/g, /۳/g, /۴/g, /۵/g, /۶/g, /۷/g, /۸/g, /۹/g];
+    const arabicDigits = [/٠/g, /١/g, /٢/g, /٣/g, /٤/g, /٥/g, /٦/g, /٧/g, /٨/g, /٩/g];
+    let result = str;
+    for (let i = 0; i < 10; i++) {
+      result = result.replace(persianDigits[i], String(i)).replace(arabicDigits[i], String(i));
+    }
+    return result;
+  }
+
+  // Get current Tehran Persian Date
+  function getTehranPersianDate(): string {
+    try {
+      return new Intl.DateTimeFormat("fa-IR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        calendar: "persian",
+        timeZone: "Asia/Tehran"
+      }).format(new Date());
+    } catch (e) {
+      return "۱۴۰۵/۰۴/۰۴ ۱۰:۳۰";
+    }
+  }
+
+  const defaultRatesAll = {
+    currencies: { USD: 650000, EUR: 702000, AED: 177000, TRY: 20000, GBP: 825000 },
+    gold: { geram18: 34000000, geram24: 45330000, mesghal: 147200000, abshodeh: 147200000 },
+    coins: { sekke: 405000000, bahar: 372000000, nim: 232000000, rob: 152000000, gerami: 6900000, sekke_retail: 409050000, parsian100: 4070000, parsian500: 17800000, parsian1000: 36700000, sekke_bubble: 67000000 },
+    crypto: { btc: 64250, eth: 3480, usdt: 651000, sol: 142 },
+    global_domestic: { ons_gold: 2331.4, ons_silver: 29.5, brent_oil: 85.2, tedpix: 2085000 }
+  };
+
+  // Scrape tgju homepage all indicators
+  async function scrapeTgjuHomepageAll(): Promise<any> {
+    const url = "https://www.tgju.org/";
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8"
+        },
+        signal: AbortSignal.timeout(5000)
+      });
+
+      if (!response.ok) return null;
+      const html = await response.text();
+
+      // Extract all TR tag headers to match cleanly without quote-sensitive issues
+      const trTags: string[] = [];
+      let pos = 0;
+      while (true) {
+        pos = html.indexOf("<tr", pos);
+        if (pos === -1) break;
+        
+        let inDoubleQuote = false;
+        let inSingleQuote = false;
+        let tagEnd = -1;
+        for (let i = pos + 3; i < html.length; i++) {
+          const char = html[i];
+          if (char === '"' && !inSingleQuote) {
+            inDoubleQuote = !inDoubleQuote;
+          } else if (char === "'" && !inDoubleQuote) {
+            inSingleQuote = !inSingleQuote;
+          } else if (char === '>' && !inDoubleQuote && !inSingleQuote) {
+            tagEnd = i;
+            break;
           }
         }
         
-        if (usdFound && tryFound) {
-          console.log("Rates retrieved from profiles:", rates);
+        if (tagEnd !== -1) {
+          trTags.push(html.substring(pos, tagEnd + 1));
+          pos = tagEnd + 1;
+        } else {
+          pos += 3;
         }
       }
 
-      // If we got both rates successfully, return immediately! No need for Gemini fallback.
-      if (usdFound && tryFound) {
-        return res.json(rates);
+      function extractVal(rowName: string): number | null {
+        try {
+          for (const tag of trTags) {
+            const hasRow = tag.includes(`data-market-row="${rowName}"`) || 
+                           tag.includes(`data-market-row='${rowName}'`) ||
+                           tag.includes(`data-market-nameslug="${rowName}"`) ||
+                           tag.includes(`data-market-nameslug='${rowName}'`);
+            if (hasRow) {
+              // 1. Try data-price attribute first
+              const priceMatch = tag.match(/data-price=["']([^"']+)["']/i);
+              if (priceMatch && priceMatch[1] && priceMatch[1].trim() !== "") {
+                const rawVal = priceMatch[1];
+                const parsedFloat = parseFloat(toEnglishDigits(rawVal).replace(/[^\d.]/g, ''));
+                if (!isNaN(parsedFloat) && parsedFloat > 0) {
+                  return parsedFloat;
+                }
+              }
+              
+              // 2. Fallback: match first td class nf or market-price in the following html block
+              const tagIndex = html.indexOf(tag);
+              if (tagIndex !== -1) {
+                const remainingHtml = html.substring(tagIndex + tag.length, tagIndex + tag.length + 1000);
+                const tdMatch = remainingHtml.match(/<td[^>]*?class=["'](?:nf|market-price-irr|market-price)["'][^>]*>([\s\S]*?)<\/td>/i);
+                if (tdMatch) {
+                  const rawVal = tdMatch[1];
+                  const parsedFloat = parseFloat(toEnglishDigits(rawVal).replace(/[^\d.]/g, ''));
+                  if (!isNaN(parsedFloat) && parsedFloat > 0) {
+                    return parsedFloat;
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {}
+        return null;
       }
 
-      // 4. If we still don't have complete rates and have Gemini configured, do a quick fallback check
-      if (ai) {
-        console.log("Using secondary retrieval strategy...");
-        const prompt = `شما یک دستیار استخراج نرخ ارز زنده هستید. با جستجو در اینترنت و مخصوصاً سایت شبکه اطلاع رسانی طلا، سکه و ارز (tgju.org)، آخرین قیمت لحظه‌ای و واقعی دلار آمریکا (USD) و لیر ترکیه (TRY) به ریال (IRR) را برای تاریخ امروز (۲۴ ژوئن ۲۰۲۶ مصادف با ۴ تیر ۱۴۰۵، یا زمان فعلی اعلامی کاربر: ${clientTime || "امروز"}) پیدا کنید.
-دقت کنید قیمت‌ها حتماً به ریال (IRR) باشند. معمولاً قیمت دلار در سایت به تومان یا ریال ثبت شده است، مطمئن شوید که تبدیل مناسب را انجام می‌دهید تا خروجی دقیقاً به ریال ایران (IRR) باشد (مثلاً اگر قیمت دلار ۶۵,۰۰۰ تومان است، به ریال می‌شود ۶۵۰,۰۰۰).
+      // Extract raw data using verified nameslugs
+      const usd = extractVal("price_dollar_rl") || 650000;
+      const eur = extractVal("price_eur") || (usd * 1.14);
+      const aed = extractVal("price_aed") || (usd / 3.67);
+      const tryRate = extractVal("price_try") || (usd / 32.5);
+      const gbp = extractVal("price_gbp") || (usd * 1.32);
+
+      // Gold
+      const geram18 = extractVal("geram18") || 34000000;
+      const geram24 = extractVal("geram24") || (geram18 * 24 / 18);
+      const mesghal = extractVal("mesghal") || (geram18 * 4.3318);
+
+      // Coins - sekee & sekeb are correct nameslugs
+      const sekke = extractVal("sekee") || 405000000;
+      const bahar = extractVal("sekeb") || 372000000;
+      const nim = extractVal("nim") || 232000000;
+      const rob = extractVal("rob") || 152000000;
+      const gerami = extractVal("gerami") || 6900000;
+
+      // Crypto - get live crypto IRR and convert to USD using the extracted dollar rate
+      const btcIrr = extractVal("crypto-bitcoin") || 59474 * usd;
+      const ethIrr = extractVal("crypto-ethereum") || 3480 * usd;
+      const solIrr = extractVal("crypto-solana") || 142 * usd;
+
+      // Convert back to USD if parsed value is indeed in IRR (usually > 1000000)
+      const btc = btcIrr > 1000000 ? btcIrr / usd : btcIrr;
+      const eth = ethIrr > 1000000 ? ethIrr / usd : ethIrr;
+      const sol = solIrr > 1000000 ? solIrr / usd : solIrr;
+
+      // Global / Domestic
+      const ons_gold = extractVal("ons") || 2331;
+      const ons_silver = extractVal("silver_999") ? (extractVal("silver_999")! / usd * 31.103) : 29.5;
+      const brent_oil = extractVal("oil_brent") || 85.2;
+      const tedpix = extractVal("boursex") || 2085000;
+
+      return {
+        currencies: {
+          USD: Math.round(usd),
+          EUR: Math.round(eur),
+          AED: Math.round(aed),
+          TRY: Math.round(tryRate),
+          GBP: Math.round(gbp)
+        },
+        gold: {
+          geram18: Math.round(geram18),
+          geram24: Math.round(geram24),
+          mesghal: Math.round(mesghal),
+          abshodeh: Math.round(mesghal)
+        },
+        coins: {
+          sekke: Math.round(sekke),
+          bahar: Math.round(bahar),
+          nim: Math.round(nim),
+          rob: Math.round(rob),
+          gerami: Math.round(gerami),
+          sekke_retail: Math.round(sekke * 1.01),
+          parsian100: Math.round(geram18 * 0.1 * 1.05 + 500000),
+          parsian500: Math.round(geram18 * 0.5 * 1.05 + 800000),
+          parsian1000: Math.round(geram18 * 1.0 * 1.05 + 1000000),
+          sekke_bubble: Math.round(Math.abs(sekke - (7.449 * (geram24 || (geram18 * 24 / 18)))))
+        },
+        crypto: {
+          btc: Number(btc.toFixed(2)),
+          eth: Number(eth.toFixed(2)),
+          usdt: Math.round(usd),
+          sol: Number(sol.toFixed(2))
+        },
+        global_domestic: {
+          ons_gold: Number(ons_gold.toFixed(2)),
+          ons_silver: Number(ons_silver.toFixed(2)),
+          brent_oil: Number(brent_oil.toFixed(2)),
+          tedpix: Math.round(tedpix)
+        }
+      };
+    } catch (error: any) {
+      return null;
+    }
+  }
+
+  // Wrapper function to fetch latest rates synchronously or fallback
+  async function fetchLatestRatesUnified(): Promise<any> {
+    const formattedToday = getTehranPersianDate();
+    const scrapedData = await scrapeTgjuHomepageAll();
+
+    if (scrapedData) {
+      return {
+        ...scrapedData,
+        date: formattedToday
+      };
+    }
+
+    // Try Gemini Search fallback if Scraping fails and AI client exists
+    if (ai) {
+      try {
+        console.log("Using secondary retrieval strategy via Gemini for full market rates...");
+        const prompt = `شما یک دستیار استخراج نرخ ارز، طلا، سکه و رمز ارز زنده هستید. با جستجو در اینترنت و مخصوصاً سایت شبکه اطلاع رسانی طلا، سکه و ارز (tgju.org)، آخرین قیمت لحظه‌ای و واقعی موارد زیر را به ریال (IRR) برای تاریخ امروز پیدا کنید.
+دقت کنید قیمت‌ها حتماً به ریال (IRR) باشند. معمولاً قیمت‌ها در سایت‌ها به تومان هم نوشته می‌شوند، اما خروجی شما باید حتماً به ریال ایران (IRR) باشد (مثلاً اگر قیمت دلار ۶۵,۰۰۰ تومان است، به ریال می‌شود ۶۵۰,۰۰۰).
 پاسخ شما باید فقط و فقط یک آبجکت معتبر JSON به فرمت زیر باشد (هیچ کلمه اضافه یا فرمت مارک‌داون دیگری ارسال نکنید):
 {
-  "USD": عدد نرخ دلار به ریال به صورت شماره,
-  "TRY": عدد نرخ لیر به ریال به صورت شماره,
-  "date": "تاریخ و ساعت به روز رسانی دقیق از سایت یا زمان حال به شمسی"
+  "currencies": {
+    "USD": نرخ دلار به ریال,
+    "EUR": نرخ یورو به ریال,
+    "AED": نرخ درهم به ریال,
+    "TRY": نرخ لیر به ریال,
+    "GBP": نرخ پوند به ریال
+  },
+  "gold": {
+    "geram18": نرخ گرم ۱۸ عیار به ریال,
+    "geram24": نرخ گرم ۲۴ عیار به ریال,
+    "mesghal": نرخ مثقال طلا به ریال,
+    "abshodeh": نرخ آبشده طلا به ریال
+  },
+  "coins": {
+    "sekke": نرخ سکه امامی به ریال,
+    "bahar": نرخ سکه بهار قدیمی به ریال,
+    "nim": نرخ نیم سکه به ریال,
+    "rob": نرخ ربع سکه به ریال,
+    "gerami": نرخ سکه گرمی به ریال
+  },
+  "crypto": {
+    "btc": قیمت بیت کوین به دلار,
+    "eth": قیمت اتریوم به دلار,
+    "usdt": قیمت تتر به ریال,
+    "sol": قیمت سولانا به دلار
+  },
+  "global_domestic": {
+    "ons_gold": انس جهانی طلا به دلار,
+    "ons_silver": انس جهانی نقره به دلار,
+    "brent_oil": نفت برنت به دلار,
+    "tedpix": شاخص کل بورس به عدد
+  },
+  "date": "تاریخ به روز رسانی"
 }`;
 
-        const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro"];
+        const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
         for (const modelName of modelsToTry) {
           try {
             const result = await ai.models.generateContent({
@@ -636,35 +1039,98 @@ async function startServer() {
               if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
                 try {
                   parsed = JSON.parse(responseText.substring(startIdx, endIdx + 1).trim());
-                } catch (e2) {
-                  // Ignore quietly
-                }
+                } catch (e2) {}
               }
             }
 
-            if (parsed.USD && parsed.TRY) {
-              rates = {
-                USD: Number(parsed.USD),
-                TRY: Number(parsed.TRY),
+            if (parsed.currencies && parsed.gold && parsed.coins) {
+              return {
+                currencies: parsed.currencies,
+                gold: parsed.gold,
+                coins: parsed.coins,
+                crypto: parsed.crypto || defaultRatesAll.crypto,
+                global_domestic: parsed.global_domestic || defaultRatesAll.global_domestic,
                 date: parsed.date || formattedToday
               };
-              console.log("Rates retrieved via secondary source:", rates);
-              return res.json(rates);
             }
           } catch (err: any) {
-            // silent retry
+            const errMsg = err.message || String(err);
+            const isQuota = errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("QUOTA_EXHAUSTED");
+            if (isQuota) {
+              console.warn(`[Rates Service] Model ${modelName} is temporarily rate-limited (429 Quota Exceeded).`);
+            } else {
+              console.warn(`[Rates Service] Model ${modelName} is unavailable: ${errMsg.substring(0, 100)}`);
+            }
           }
         }
+      } catch (geminiErr) {
+        console.warn("Gemini retrieval failed:", geminiErr);
+      }
+    }
+
+    // Default rates baseline fallback
+    return {
+      ...defaultRatesAll,
+      date: formattedToday,
+      isFallback: true
+    };
+  }
+
+  // Pre-warm the cache immediately in background on startup
+  fetchLatestRatesUnified()
+    .then((warmedRates) => {
+      ratesCache = warmedRates;
+      ratesCacheTime = Date.now();
+      console.log("Startup Cache Warmup: Rates cached successfully.");
+    })
+    .catch((err) => {
+      console.error("Startup Cache Warmup failed:", err);
+    });
+
+  // API endpoint for currency rate updates
+  app.post("/api/currency/rates", async (req, res) => {
+    try {
+      const now = Date.now();
+      const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
+
+      // If we have a fresh, valid (non-fallback) cache, serve it instantly!
+      if (ratesCache && !ratesCache.isFallback && (now - ratesCacheTime < CACHE_TTL_MS)) {
+        console.log("Serving fresh rate updates from memory cache (instant)");
+        return res.json(ratesCache);
       }
 
-      console.log("Using standard rate profiles:", rates);
-      res.json(rates);
+      // Otherwise, synchronously retrieve the absolute latest rates
+      console.log("Retrieving latest rates synchronously to ensure real-time accuracy...");
+      const freshRates = await fetchLatestRatesUnified();
+
+      if (freshRates && !freshRates.isFallback) {
+        ratesCache = freshRates;
+        ratesCacheTime = Date.now();
+        console.log("Rates updated successfully with fresh data.");
+        return res.json(freshRates);
+      }
+
+      // If the fresh retrieval returned fallback (due to scraper / model issues)
+      // but we have a non-fallback cache stored (even if stale), prefer the cached real rates!
+      if (ratesCache && !ratesCache.isFallback) {
+        console.log("Fresh retrieval failed; serving stored non-fallback cache (graceful degradation).");
+        return res.json(ratesCache);
+      }
+
+      // Absolute worst case: return the fresh fallback rates
+      console.log("Both fresh retrieval and cache failed; returning baseline fallback rates.");
+      return res.json(freshRates || {
+        ...defaultRatesAll,
+        date: getTehranPersianDate(),
+        isFallback: true
+      });
+
     } catch (e: any) {
-      console.log("Completed with baseline rate profiles");
-      res.json({
-        USD: 650000,
-        TRY: 20000,
-        date: getTehranPersianDate()
+      console.error("Rates endpoint error:", e);
+      return res.json({
+        ...defaultRatesAll,
+        date: getTehranPersianDate(),
+        isFallback: true
       });
     }
   });

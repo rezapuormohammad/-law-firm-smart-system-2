@@ -1,12 +1,13 @@
 import { safeStorage } from "../utils/safeStorage";
 import React, { useState, useEffect } from "react";
 import { Client, LegalCase, CaseNote, CaseDocument, CaseStage, CaseStatus, ClientPartyRole } from "../types";
-import { toPersianDigits, toEnglishDigits, formatDateWithSlash } from "../utils/shamsi";
+import { toPersianDigits, toEnglishDigits, formatDateWithSlash, getCurrentJalali, formatJalaliDate } from "../utils/shamsi";
 import { documentDb } from "../utils/documentStorage";
 import {
   FolderPlus,
   UserPlus,
   User,
+  Users,
   FileText,
   Trash2,
   Paperclip,
@@ -31,7 +32,13 @@ import {
   Bell,
   MessageCircle,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  TrendingUp,
+  PiggyBank,
+  Sparkles,
+  ArrowLeft,
+  Camera,
+  Folder
 } from "lucide-react";
 
 interface CaseManagerProps {
@@ -47,13 +54,16 @@ interface CaseManagerProps {
   onUpdateNote: (id: string, title: string, content: string) => void;
   onDeleteNote: (id: string) => void;
   onAddDocument: (newDoc: CaseDocument) => void;
-  onUpdateDocumentName: (id: string, newName: string) => void;
+  onUpdateDocument: (id: string, updates: Partial<CaseDocument>) => void;
   onDeleteDocument: (id: string) => void;
   onDeleteCase: (id: string) => void;
   onDeleteClient: (id: string) => void;
   onUpdateClient: (updatedClient: Client) => void;
   onNavigateToAlarms?: () => void;
   onUpdateDocumentList?: (updatedDocs: CaseDocument[]) => void;
+  onNavigate?: (tab: string) => void;
+  initialCaseId?: string;
+  initialOpenNotes?: boolean;
 }
 
 const hasValue = (val: any): boolean => {
@@ -80,14 +90,17 @@ export default function CaseManager({
   onUpdateNote,
   onDeleteNote,
   onAddDocument,
-  onUpdateDocumentName,
+  onUpdateDocument,
   onDeleteDocument,
   onDeleteCase,
   onDeleteClient,
   onUpdateClient,
   onNavigateToAlarms,
   onUpdateDocumentList,
-  defaultSubTab = "cases"
+  onNavigate,
+  defaultSubTab = "cases",
+  initialCaseId,
+  initialOpenNotes
 }: CaseManagerProps) {
   const lawyerName = safeStorage.getItem("r_lawyer_name") || "";
   // Tabs: "cases" | "closedCases" | "clients"
@@ -102,6 +115,26 @@ export default function CaseManager({
 
   // Selection states
   const [selectedCase, setSelectedCase] = useState<LegalCase | null>(null);
+
+  useEffect(() => {
+    if (initialCaseId) {
+      const foundCase = cases.find(c => c.id === initialCaseId);
+      if (foundCase) {
+        if (initialOpenNotes) {
+          setShowNotesManager(foundCase);
+          setSelectedCase(null);
+        } else {
+          setSelectedCase(foundCase);
+          setShowNotesManager(null);
+        }
+        if (foundCase.status === "مختومه") {
+          setSubTab("closedCases");
+        } else {
+          setSubTab("cases");
+        }
+      }
+    }
+  }, [initialCaseId, cases, initialOpenNotes]);
 
   const moveDocument = (docId: string, direction: "up" | "down") => {
     if (!selectedCase) return;
@@ -131,6 +164,7 @@ export default function CaseManager({
   };
   const [showNotesManager, setShowNotesManager] = useState<LegalCase | null>(null);
   const [printableCase, setPrintableCase] = useState<LegalCase | null>(null);
+  const [caseFinanceViewCase, setCaseFinanceViewCase] = useState<LegalCase | null>(null);
   const [printableClient, setPrintableClient] = useState<Client | null>(null);
   const [contactClient, setContactClient] = useState<Client | null>(null);
   const [includeFinancialInPrint, setIncludeFinancialInPrint] = useState(true);
@@ -172,6 +206,10 @@ export default function CaseManager({
   const [investigationCaseNo, setInvestigationCaseNo] = useState("");
   const [prosecutionCaseNo, setProsecutionCaseNo] = useState("");
   const [caseFilingDate, setCaseFilingDate] = useState("");
+  const [caseCourtRegistrationDate, setCaseCourtRegistrationDate] = useState("");
+  const [casePowerOfAttorneyDate, setCasePowerOfAttorneyDate] = useState("");
+  const [caseClosedDate, setCaseClosedDate] = useState("");
+  const [showCaseDatesModal, setShowCaseDatesModal] = useState(false);
   const [caseTitle, setCaseTitle] = useState("");
   const [caseOpposingName, setCaseOpposingName] = useState("");
   const [caseClientRole, setCaseClientRole] = useState<ClientPartyRole>("خواهان");
@@ -182,10 +220,20 @@ export default function CaseManager({
   const [caseTotalContractAmount, setCaseTotalContractAmount] = useState("");
   const [caseDownPayment, setCaseDownPayment] = useState("");
   const [caseSanaPassword, setCaseSanaPassword] = useState("");
-  const [caseInstallments, setCaseInstallments] = useState<{ id?: string, amount: string, dueDate: string, isPaid?: boolean, paidDate?: string }[]>([]);
-  const [casePayments, setCasePayments] = useState<{ id: string, title: string, amount: string, type: string, date: string, cardNumber: string }[]>([]);
+  const [caseContractNo, setCaseContractNo] = useState("");
+  const [showCaseNumbersModal, setShowCaseNumbersModal] = useState(false);
+  const [showAssociatedPersonsModal, setShowAssociatedPersonsModal] = useState(false);
+  const [caseInstallments, setCaseInstallments] = useState<{ id?: string, amount: string, dueDate: string, isPaid?: boolean, paidDate?: string, note?: string }[]>([]);
+  const [casePayments, setCasePayments] = useState<{ id: string, title: string, amount: string, type: string, date: string, cardNumber: string, receiptImage?: string }[]>([]);
   const [caseAssociatedPersons, setCaseAssociatedPersons] = useState<{ name: string, phone: string }[]>([]);
+  const [previewSubPage, setPreviewSubPage] = useState<number | null>(null);
+  const [selectedReceiptImage, setSelectedReceiptImage] = useState<string | null>(null);
   const [docNameInput, setDocNameInput] = useState("");
+  const [docTagInput, setDocTagInput] = useState<CaseDocument["tag"]>("عادی");
+  const [docLawArticle, setDocLawArticle] = useState("");
+  const [docLawText, setDocLawText] = useState("");
+  const [docSearchQuery, setDocSearchQuery] = useState("");
+  const [docTagFilter, setDocTagFilter] = useState<CaseDocument["tag"] | "all">("all");
 
   const resetCaseFormStates = () => {
     setCaseFormStep(1);
@@ -202,6 +250,10 @@ export default function CaseManager({
     setInvestigationCaseNo("");
     setProsecutionCaseNo("");
     setCaseFilingDate("");
+    setCaseCourtRegistrationDate("");
+    setCasePowerOfAttorneyDate("");
+    setCaseClosedDate("");
+    setShowCaseDatesModal(false);
     setCaseTitle("");
     setCaseOpposingName("");
     setCaseClientRole("خواهان");
@@ -212,9 +264,12 @@ export default function CaseManager({
     setCaseTotalContractAmount("");
     setCaseDownPayment("");
     setCaseSanaPassword("");
+    setCaseContractNo("");
     setCaseInstallments([]);
     setCasePayments([]);
     setCaseAssociatedPersons([]);
+    setShowCaseNumbersModal(false);
+    setShowAssociatedPersonsModal(false);
   };
 
   // --- Finance Edit States (inside modal detail) ---
@@ -253,6 +308,9 @@ export default function CaseManager({
   // --- Document Renaming states ---
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [editDocName, setEditDocName] = useState("");
+  const [editDocTag, setEditDocTag] = useState<CaseDocument["tag"]>("عادی");
+  const [editDocLawArticle, setEditDocLawArticle] = useState("");
+  const [editDocLawText, setEditDocLawText] = useState("");
 
   // --- File attachment (inside modal) ---
   const [dragActive, setDragActive] = useState(false);
@@ -331,6 +389,10 @@ export default function CaseManager({
       alert("لطفاً موکل مرتبط را انتخاب نمایید.");
       return false;
     }
+    if (!caseNo.trim()) {
+      alert("لطفاً شماره پرونده ثنا را از بخش تنظیم شماره‌های پرونده وارد نمایید.");
+      return false;
+    }
 
     const client = clients.find(cl => cl.id === caseClientId);
 
@@ -341,10 +403,11 @@ export default function CaseManager({
       amount: parseDigits(ins.amount),
       dueDate: ins.dueDate,
       isPaid: ins.isPaid,
-      paidDate: ins.paidDate
+      paidDate: ins.paidDate,
+      note: ins.note || ""
     }));
     const paymentsData = casePayments.map(p => ({
-      id: p.id, title: p.title, amount: parseDigits(p.amount), type: p.type, date: p.date, cardNumber: p.cardNumber
+      id: p.id, title: p.title, amount: parseDigits(p.amount), type: p.type, date: p.date, cardNumber: p.cardNumber, receiptImage: p.receiptImage
     }));
     const associatedPersonsData = caseAssociatedPersons;
 
@@ -366,6 +429,9 @@ export default function CaseManager({
       investigationCaseNumber: investigationCaseNo ? toPersianDigits(investigationCaseNo) : undefined,
       prosecutionCaseNumber: prosecutionCaseNo ? toPersianDigits(prosecutionCaseNo) : undefined,
       filingDate: caseFilingDate ? toPersianDigits(caseFilingDate) : undefined,
+      closedDate: caseClosedDate ? toPersianDigits(caseClosedDate) : undefined,
+      courtRegistrationDate: caseCourtRegistrationDate ? toPersianDigits(caseCourtRegistrationDate) : undefined,
+      powerOfAttorneyDate: casePowerOfAttorneyDate ? toPersianDigits(casePowerOfAttorneyDate) : undefined,
       title: caseTitle,
       stage: caseStage,
       branch: caseBranch,
@@ -375,6 +441,7 @@ export default function CaseManager({
       totalContractAmount: totalContractAmountNum,
       downPayment: downPaymentNum,
       sanaPassword: caseSanaPassword,
+      contractNumber: caseContractNo ? toPersianDigits(caseContractNo) : undefined,
       installments: installmentsData,
       associatedPersons: associatedPersonsData,
       createdAt: new Date().toLocaleDateString("fa-IR", { year: "numeric", month: "long", day: "numeric" })
@@ -403,6 +470,7 @@ export default function CaseManager({
     setCaseTotalContractAmount("");
     setCaseDownPayment("");
     setCaseSanaPassword("");
+    setCaseContractNo("");
     setCaseInstallments([]);
     return true;
   };
@@ -432,10 +500,79 @@ export default function CaseManager({
     setEditingNoteId(null);
   };
 
-  const handleSaveEditedDocName = (docId: string) => {
+  const handleSaveEditedDoc = (docId: string) => {
     if (!editDocName.trim()) return;
-    onUpdateDocumentName(docId, editDocName);
+    onUpdateDocument(docId, {
+      name: editDocName,
+      tag: editDocTag,
+      lawArticle: editDocLawArticle,
+      lawText: editDocLawText
+    });
     setEditingDocId(null);
+  };
+
+  const triggerOpenInNewTab = (doc: CaseDocument) => {
+    if (!doc) return;
+    
+    // We already have the loaded/prepared dataUrl (which is a Blob URL) in previewDoc
+    const fileUrl = doc.dataUrl;
+    if (!fileUrl) {
+      alert("محتوای فایل هنوز بارگذاری نشده است. لطفاً کمی صبر کنید.");
+      return;
+    }
+
+    try {
+      // Try to open the blob URL or data URL directly in a new tab
+      const newWindow = window.open(fileUrl, "_blank");
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === "undefined") {
+        // Fallback if window.open was blocked by popup blocker or sandboxed iframe restriction
+        const a = document.createElement("a");
+        a.href = fileUrl;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (e) {
+      console.error("Failed to open document directly in new tab", e);
+      // Fallback
+      const a = document.createElement("a");
+      a.href = fileUrl;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
+  const triggerDirectDownload = (dataUrl: string, name: string) => {
+    if (!dataUrl) return;
+    try {
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      console.error("Direct download failed", e);
+      // Fallback to open in new tab with standard anchor
+      const w = window.open();
+      if (w) {
+        w.document.write(`
+          <html>
+            <body style="background:#121212; color:#fff; display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; margin:0;">
+              <h2>در حال آماده‌سازی دانلود...</h2>
+              <p>لطفاً برای دانلود مستقیم روی دکمه زیر کلیک کنید:</p>
+              <a href="${dataUrl}" download="${name}" style="padding:12px 24px; background:#f59e0b; color:#000; text-decoration:none; font-weight:bold; border-radius:10px; font-size:16px;">کلیک کنید</a>
+            </body>
+          </html>
+        `);
+        w.document.close();
+      }
+    }
   };
 
   const handleViewDocument = async (doc: CaseDocument) => {
@@ -447,25 +584,42 @@ export default function CaseManager({
         const storedUrl = await documentDb.get(doc.id);
         if (storedUrl) {
           docUrl = storedUrl;
-          // Optimistically update the document list if needed, or just use it for rendering
         }
       }
 
       if (docUrl) {
-        // Create an Object URL for better browser compatibility and iframe rendering
-        // Fetch API can parse data URIs
-        const response = await fetch(docUrl);
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        
-        // Use the object URL instead of the massive data URI for rendering
-        setPreviewDoc({ ...doc, dataUrl: objectUrl });
+        let finalUrl = docUrl;
+        if (docUrl.startsWith("data:")) {
+          try {
+            const parts = docUrl.split(",");
+            const mime = parts[0].match(/:(.*?);/)?.[1] || "application/octet-stream";
+            const b64Data = parts[1];
+            const byteCharacters = atob(b64Data);
+            const byteArrays = [];
+            
+            for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+              const slice = byteCharacters.slice(offset, offset + 512);
+              const byteNumbers = new Array(slice.length);
+              for (let i = 0; i < slice.length; i++) {
+                byteNumbers[i] = slice.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              byteArrays.push(byteArray);
+            }
+            
+            const blob = new Blob(byteArrays, { type: mime });
+            finalUrl = URL.createObjectURL(blob);
+          } catch (e) {
+            console.error("Error converting data URI to blob URL:", e);
+            finalUrl = docUrl;
+          }
+        }
+        setPreviewDoc({ ...doc, dataUrl: finalUrl });
       } else {
         setPreviewDoc(doc); // Open anyway to show error view
       }
     } catch (err: any) {
       console.error("Error preparing document for preview:", err);
-      // Fallback to whatever we had
       setPreviewDoc(doc);
     }
   };
@@ -493,14 +647,20 @@ export default function CaseManager({
       const newDoc: CaseDocument = {
         id: "do_" + Date.now(),
         caseId: selectedCase.id,
-        name: file.name,
+        name: docNameInput || file.name,
         type: isPdf ? "pdf" : isImage ? "image" : isAudio ? "audio" : "other",
         size: toPersianDigits(sizeStr),
         dataUrl,
-        uploadedAt: new Date().toLocaleDateString("fa-IR", { year: "numeric", month: "long", day: "numeric" })
+        uploadedAt: new Date().toLocaleDateString("fa-IR", { year: "numeric", month: "long", day: "numeric" }),
+        tag: docTagInput || "عادی",
+        lawArticle: docLawArticle,
+        lawText: docLawText
       };
       onAddDocument(newDoc);
       setDocNameInput("");
+      setDocTagInput("عادی");
+      setDocLawArticle("");
+      setDocLawText("");
     };
 
     if (file.size < 20971520) { // 20 MB max
@@ -542,14 +702,20 @@ export default function CaseManager({
       const newDoc: CaseDocument = {
         id: "do_" + Date.now(),
         caseId: selectedCase.id,
-        name: file.name,
+        name: docNameInput || file.name,
         type: isPdf ? "pdf" : isImage ? "image" : "other",
         size: toPersianDigits(sizeStr),
         dataUrl,
-        uploadedAt: new Date().toLocaleDateString("fa-IR", { year: "numeric", month: "long", day: "numeric" })
+        uploadedAt: new Date().toLocaleDateString("fa-IR", { year: "numeric", month: "long", day: "numeric" }),
+        tag: docTagInput || "عادی",
+        lawArticle: docLawArticle,
+        lawText: docLawText
       };
       onAddDocument(newDoc);
       setDocNameInput("");
+      setDocTagInput("عادی");
+      setDocLawArticle("");
+      setDocLawText("");
     };
 
     if (file.size < 20971520) { // 20 MB max
@@ -566,6 +732,11 @@ export default function CaseManager({
   // Get notes/documents for specifically selected case
   const activeCaseNotes = selectedCase ? notes.filter(n => n.caseId === selectedCase.id) : [];
   const activeCaseDocs = selectedCase ? documents.filter(d => d.caseId === selectedCase.id) : [];
+  const filteredCaseDocs = activeCaseDocs.filter(doc => {
+    const matchesSearch = docSearchQuery.trim() === "" || doc.name.toLowerCase().includes(docSearchQuery.toLowerCase());
+    const matchesTag = docTagFilter === "all" || doc.tag === docTagFilter;
+    return matchesSearch && matchesTag;
+  });
 
   const handlePrint = (caseToPrint?: LegalCase, includeFinancial: boolean = true) => {
     const caseObj = caseToPrint || selectedCase;
@@ -576,6 +747,7 @@ export default function CaseManager({
     const clientRole = caseObj.clientRole;
     const clientPhone = associatedClient?.phoneNumber;
     const clientNationalId = associatedClient?.nationalId;
+    const clientBirthDate = associatedClient?.birthDate;
 
     let printWindow: Window | null = null;
     try {
@@ -650,6 +822,7 @@ export default function CaseManager({
                 ${hasValue(clientRole) ? `<p><strong>نقش موکل:</strong> <span style="color: #1e40af; font-weight: 600;">${clientRole}</span></p>` : ""}
                 ${hasValue(clientPhone) ? `<p><strong>تلفن همراه:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(clientPhone)}</span></p>` : ""}
                 ${hasValue(clientNationalId) ? `<p><strong>کد ملی:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(clientNationalId)}</span></p>` : ""}
+                ${hasValue(clientBirthDate) ? `<p><strong>تاریخ تولد:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(clientBirthDate)}</span></p>` : ""}
               </div>
             </div>
 
@@ -661,8 +834,12 @@ export default function CaseManager({
                 ${hasValue(caseObj.caseNumber) ? `<p><strong>شماره پرونده (ثنا):</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.caseNumber)}</span></p>` : ""}
                 ${hasValue(caseObj.branch) ? `<p><strong>شعبه دادگاه:</strong> <span style="color: #1e40af; font-weight: 600;">${toPersianDigits(caseObj.branch)}</span></p>` : ""}
                 ${hasValue(caseObj.sanaPassword) ? `<p><strong>رمز شخصی ثنا:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${caseObj.sanaPassword}</span></p>` : ""}
+                ${hasValue(caseObj.contractNumber) ? `<p><strong>شماره قرارداد وکالتنامه:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.contractNumber)}</span></p>` : ""}
                 ${hasValue(caseObj.opposingPartyName) ? `<p><strong>طرف مقابل پرونده:</strong> <span style="color: #1e40af; font-weight: 600;">${caseObj.opposingPartyName}</span></p>` : ""}
-                ${hasValue(caseObj.filingDate) ? `<p><strong>تاریخ تشکیل پرونده:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.filingDate)}</span></p>` : ""}
+                ${hasValue(caseObj.filingDate) ? `<p><strong>تاریخ تشکیل در سامانه:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.filingDate)}</span></p>` : ""}
+                ${hasValue(caseObj.courtRegistrationDate) ? `<p><strong>تاریخ ثبت دادگستری:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.courtRegistrationDate)}</span></p>` : ""}
+                ${hasValue(caseObj.powerOfAttorneyDate) ? `<p><strong>تاریخ اخذ وکالت:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.powerOfAttorneyDate)}</span></p>` : ""}
+                ${hasValue(caseObj.closedDate) ? `<p><strong>تاریخ مختومه شدن:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.closedDate)}</span></p>` : ""}
                 ${hasValue(caseObj.createdAt) ? `<p><strong>تاریخ ثبت در سیستم:</strong> <span style="color: #1e40af; font-weight: 600; font-family: monospace;">${toPersianDigits(caseObj.createdAt)}</span></p>` : ""}
                 ${hasValue(caseObj.stage) ? `<p><strong>مرحلۀ پرونده:</strong> <span style="color: #1e40af; font-weight: 600;">${caseObj.stage}</span></p>` : ""}
                 ${hasValue(caseObj.status) ? `<p><strong>وضعیت پرونده:</strong> <span style="color: #1e40af; font-weight: 600;">${caseObj.status}</span></p>` : ""}
@@ -701,6 +878,7 @@ export default function CaseManager({
                       <th class="p-2 border-l border-slate-350 text-center w-12" style="background:#f1f5f9;">ردیف</th>
                       <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">مبلغ قسط</th>
                       <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">تاریخ سررسید</th>
+                      <th class="p-2 border-l border-slate-350" style="background:#f1f5f9;">بابت / توضیحات</th>
                       <th class="p-2" style="background:#f1f5f9;">وضعیت پرداخت</th>
                     </tr>
                   </thead>
@@ -710,6 +888,7 @@ export default function CaseManager({
                         <td class="p-2 border-l border-slate-200 text-center font-mono text-[10px]">${toPersianDigits(idx + 1)}</td>
                         <td class="p-2 border-l border-slate-200" style="color: #1e40af; font-weight: 600;">${toPersianDigits((ins.amount ?? 0).toLocaleString())} تومان</td>
                         <td class="p-2 border-l border-slate-200 font-mono">${toPersianDigits(ins.dueDate)}</td>
+                        <td class="p-2 border-l border-slate-200" style="font-family: sans-serif;">${ins.note || "-"}</td>
                         <td class="p-2">
                           ${ins.isPaid ? `<span style="color: #16a34a; font-weight: bold;">پرداخت شده ${ins.paidDate ? `(در ` + toPersianDigits(ins.paidDate) + `)` : ``}</span>` : `<span style="color: #d97706; font-weight: bold;">معوق / در انتظار پرداخت</span>`}
                         </td>
@@ -1048,7 +1227,7 @@ export default function CaseManager({
             }`}
           >
             <Briefcase className="w-4 h-4" />
-            پرونده‌های جاری
+            پرونده‌های جاری ({toPersianDigits(cases.filter(c => c.status !== "مختومه").length)})
           </button>
           
           <button
@@ -1061,7 +1240,7 @@ export default function CaseManager({
             }`}
           >
             <FolderArchive className="w-4 h-4" />
-            پرونده‌های مختومه
+            پرونده‌های مختومه ({toPersianDigits(cases.filter(c => c.status === "مختومه").length)})
           </button>
           
           <button
@@ -1074,7 +1253,7 @@ export default function CaseManager({
             }`}
           >
             <User className="w-4 h-4" />
-            اطلاعات موکلین
+            اطلاعات موکلین ({toPersianDigits(clients.length)})
           </button>
         </div>
 
@@ -1209,7 +1388,14 @@ export default function CaseManager({
                           <p className="font-bold text-slate-800 text-sm">
                             {toPersianDigits(c.title)}
                           </p>
-                          <p className="text-[10px] font-mono text-slate-400 mt-1">شماره پرونده: {toPersianDigits(c.caseNumber)}</p>
+                          <p className="text-[10px] font-mono text-slate-400 mt-1 flex flex-wrap items-center gap-2">
+                            <span>شماره پرونده: {toPersianDigits(c.caseNumber)}</span>
+                            {c.contractNumber && (
+                              <span className="font-sans font-bold text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                                قرارداد: {toPersianDigits(c.contractNumber)}
+                              </span>
+                            )}
+                          </p>
                         </div>
                       </td>
                       <td className="p-4 text-slate-700">{c.clientName}</td>
@@ -1235,7 +1421,18 @@ export default function CaseManager({
                       <td className="p-4 text-center">
                         <div className="flex justify-center gap-1">
                           <button
-                            onClick={() => onUpdateCase({ ...c, status: c.status === "مختومه" ? "جریان دارد" : "مختومه" })}
+                            onClick={() => {
+                              const isClosing = c.status !== "مختومه";
+                              const newStatus = isClosing ? "مختومه" : "جریان دارد";
+                              let updatedCase = { ...c, status: newStatus as CaseStatus };
+                              if (isClosing) {
+                                const today = getCurrentJalali();
+                                updatedCase.closedDate = toPersianDigits(formatJalaliDate(today.jy, today.jm, today.jd));
+                              } else {
+                                updatedCase.closedDate = "";
+                              }
+                              onUpdateCase(updatedCase);
+                            }}
                             className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
                               c.status === "مختومه"
                                 ? "bg-green-100 text-green-700 hover:bg-green-200"
@@ -1262,9 +1459,14 @@ export default function CaseManager({
                           </button>
                           <button
                             onClick={() => setShowNotesManager(c)}
-                            className="px-2 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold hover:bg-amber-700 transition"
+                            className="px-2 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold hover:bg-amber-700 transition flex items-center gap-1"
                           >
                             یادداشت
+                            {notes.filter(n => n.caseId === c.id).length > 0 && (
+                              <span className="bg-amber-800 px-1.5 py-0.5 rounded-md text-[9px] font-mono leading-none">
+                                {toPersianDigits(notes.filter(n => n.caseId === c.id).length)}
+                              </span>
+                            )}
                           </button>
                           <button
                             onClick={() => {
@@ -1284,6 +1486,9 @@ export default function CaseManager({
                               setInvestigationCaseNo(c.investigationCaseNumber ? toEnglishDigits(c.investigationCaseNumber).replace(/\D/g, "") : "");
                               setProsecutionCaseNo(c.prosecutionCaseNumber ? toEnglishDigits(c.prosecutionCaseNumber).replace(/\D/g, "") : "");
                               setCaseFilingDate(c.filingDate || "");
+                              setCaseClosedDate(c.closedDate || "");
+                              setCaseCourtRegistrationDate(c.courtRegistrationDate || "");
+                              setCasePowerOfAttorneyDate(c.powerOfAttorneyDate || "");
                               setCaseTitle(c.title);
                               setCaseOpposingName(c.opposingPartyName || "");
                               setCaseClientRole(c.clientRole || "خواهان");
@@ -1292,9 +1497,10 @@ export default function CaseManager({
                               setCaseStatus(c.status);
                               setCaseDesc(c.description || "");
                               setCaseSanaPassword(c.sanaPassword || "");
+                              setCaseContractNo(c.contractNumber ? toEnglishDigits(c.contractNumber) : "");
                               setCaseTotalContractAmount(c.totalContractAmount ? c.totalContractAmount.toString() : "");
                               setCaseDownPayment(c.downPayment ? c.downPayment.toString() : "");
-                              setCasePayments(c.payments?.map(p => ({ ...p, amount: p.amount.toString(), cardNumber: p.cardNumber || "" })) || []);
+                              setCasePayments(c.payments?.map(p => ({ ...p, amount: p.amount.toString(), cardNumber: p.cardNumber || "", receiptImage: p.receiptImage })) || []);
                               setCaseInstallments(c.installments?.map(i => ({ ...i, amount: i.amount.toString() })) || []);
                               setCaseAssociatedPersons(c.associatedPersons || []);
                               setCaseFormStep(1);
@@ -1627,6 +1833,10 @@ export default function CaseManager({
             <form onSubmit={(e) => {
               e.preventDefault();
               if (editingCase) {
+                if (!caseNo.trim()) {
+                  alert("لطفاً شماره پرونده ثنا را از بخش تنظیم شماره‌های پرونده وارد نمایید.");
+                  return;
+                }
                 // Update
                 const totalContractAmountNum = parseDigits(caseTotalContractAmount);
                 const downPaymentNum = parseDigits(caseDownPayment);
@@ -1635,10 +1845,11 @@ export default function CaseManager({
                   amount: parseDigits(ins.amount),
                   dueDate: ins.dueDate,
                   isPaid: ins.isPaid,
-                  paidDate: ins.paidDate
+                  paidDate: ins.paidDate,
+                  note: ins.note || ""
                 }));
                 const paymentsData = casePayments.map(p => ({
-                  id: p.id, title: p.title, amount: parseDigits(p.amount), type: p.type, date: p.date, cardNumber: p.cardNumber
+                  id: p.id, title: p.title, amount: parseDigits(p.amount), type: p.type, date: p.date, cardNumber: p.cardNumber, receiptImage: p.receiptImage
                 }));
 
                 const updatedCase: LegalCase = {
@@ -1659,6 +1870,9 @@ export default function CaseManager({
                   investigationCaseNumber: investigationCaseNo ? toPersianDigits(investigationCaseNo) : undefined,
                   prosecutionCaseNumber: prosecutionCaseNo ? toPersianDigits(prosecutionCaseNo) : undefined,
                   filingDate: caseFilingDate ? toPersianDigits(caseFilingDate) : undefined,
+                  closedDate: caseClosedDate ? toPersianDigits(caseClosedDate) : undefined,
+                  courtRegistrationDate: caseCourtRegistrationDate ? toPersianDigits(caseCourtRegistrationDate) : undefined,
+                  powerOfAttorneyDate: casePowerOfAttorneyDate ? toPersianDigits(casePowerOfAttorneyDate) : undefined,
                   title: caseTitle,
                   stage: caseStage,
                   branch: caseBranch,
@@ -1668,6 +1882,7 @@ export default function CaseManager({
                   totalContractAmount: totalContractAmountNum,
                   downPayment: downPaymentNum,
                   sanaPassword: caseSanaPassword,
+                  contractNumber: caseContractNo ? toPersianDigits(caseContractNo) : undefined,
                   installments: installmentsData,
                   associatedPersons: caseAssociatedPersons
                 };
@@ -1719,138 +1934,38 @@ export default function CaseManager({
                        </select>
                     </div>
 
-                    <div className="space-y-1 col-span-1 sm:col-span-2 lg:col-span-2">
-                      <label className="text-slate-500">شماره پرونده ثنا (عدل ایران - ۱۶ الی ۱۸ رقمی) *</label>
-                      <input
-                        type="text"
-                        required
-                        maxLength={18}
-                        value={caseNo}
-                        onChange={(e) => setCaseNo(e.target.value)}
-                        placeholder="مثلا: ۱۴۰۳۹۸۷۶۵۴۳۲۱۰۰۱"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
+                    {/* کادر شماره پرونده جهت باز کردن پنجره اختصاصی شماره‌ها */}
+                    <div 
+                      onClick={() => setShowCaseNumbersModal(true)}
+                      className="col-span-1 sm:col-span-2 lg:col-span-2 border border-amber-200 bg-amber-50/30 hover:bg-amber-100/40 p-2.5 rounded-xl cursor-pointer transition flex items-center justify-between gap-3 text-amber-900 select-none"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="bg-amber-100 p-1.5 rounded-lg text-amber-600">
+                          <Plus className="w-4 h-4" />
+                        </div>
+                        <div className="text-right">
+                          <p className="font-extrabold text-xs text-slate-800">شماره پرونده</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">ثنا، بدوی، تجدیدنظر، اجرای احکام و...</p>
+                        </div>
+                      </div>
+                      <div className="text-left font-mono text-[10px] bg-white px-2 py-1 rounded border border-slate-100 text-slate-600 font-bold max-w-[150px] truncate">
+                        {caseNo ? `ثنا: ${toPersianDigits(caseNo)}` : "تنظیم شماره‌ها"}
+                      </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-slate-500">تاریخ تشکیل پرونده</label>
-                      <input
-                        type="text"
-                        placeholder="مثال: ۱۴۰۳/۰۱/۰۱"
-                        value={caseFilingDate}
-                        onChange={(e) => setCaseFilingDate(formatDateWithSlash(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده دیوان عالی / فرجام خواهی</label>
-                      <input
-                        type="text"
-                        value={supremeCaseNo}
-                        onChange={(e) => setSupremeCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۵۶۷۰۰۰"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده اجرای احکام کیفری</label>
-                      <input
-                        type="text"
-                        value={executionCaseNo}
-                        onChange={(e) => setExecutionCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۷۸۹۰۰۰"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده اجرای احکام مدنی</label>
-                      <input
-                        type="text"
-                        value={executionCivilCaseNo}
-                        onChange={(e) => setExecutionCivilCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۱۲۳۰۰۰"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده اعسار</label>
-                      <input
-                        type="text"
-                        value={insolvencyCaseNo}
-                        onChange={(e) => setInsolvencyCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۸۹۰۰۰۰"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده بازپرسی</label>
-                      <input
-                        type="text"
-                        value={investigationCaseNo}
-                        onChange={(e) => setInvestigationCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۱۲۳۰۰۱"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده دادیاری</label>
-                      <input
-                        type="text"
-                        value={prosecutionCaseNo}
-                        onChange={(e) => setProsecutionCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۱۲۳۰۰۲"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">کد بایگانی دفتر</label>
-                      <input
-                        type="text"
-                        value={caseArchiveNo}
-                        onChange={(e) => setCaseArchiveNo(e.target.value)}
-                        placeholder="اختیاری"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده دادگاه بدوی</label>
-                      <input
-                        type="text"
-                        value={courtCaseNo}
-                        onChange={(e) => setCourtCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۶۸۹۲۰۰"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده تجدید نظر</label>
-                      <input
-                        type="text"
-                        value={appealCaseNo}
-                        onChange={(e) => setAppealCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۹۸۷۰۰۰"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-slate-500">شماره پرونده واخواهی</label>
-                      <input
-                        type="text"
-                        value={rejectionCaseNo}
-                        onChange={(e) => setRejectionCaseNo(e.target.value)}
-                        placeholder="مثال: ۱۴۰۳۴۵۶۰۰۰"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium"
-                      />
+                    <div className="col-span-1 sm:col-span-2 lg:col-span-2 border border-amber-200 bg-amber-50/30 hover:bg-amber-100/40 p-2.5 rounded-xl cursor-pointer transition flex items-center justify-between gap-3 text-amber-900 select-none" onClick={() => setShowCaseDatesModal(true)}>
+                      <div className="flex items-center gap-2">
+                        <div className="bg-amber-100 p-1.5 rounded-lg text-amber-600">
+                          <Calendar className="w-4 h-4" />
+                        </div>
+                        <div className="text-right">
+                          <p className="font-extrabold text-xs text-slate-800">سابقه تاریخ پرونده</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">تاریخ ثبت دادگستری، اخذ وکالت و...</p>
+                        </div>
+                      </div>
+                      <div className="text-left font-mono text-[10px] bg-white px-2 py-1 rounded border border-slate-100 text-slate-600 font-bold max-w-[150px] truncate">
+                        {caseFilingDate || caseCourtRegistrationDate || casePowerOfAttorneyDate ? "تنظیم شده" : "ثبت تاریخ‌ها"}
+                      </div>
                     </div>
 
                     {/* موضوع دعوی (خواسته) / موضوع شکایت */}
@@ -1906,25 +2021,37 @@ export default function CaseManager({
                       />
                     </div>
 
-                    {/* Associated Persons Section */}
-                    <div className="space-y-2 col-span-1 sm:col-span-2 lg:col-span-4 border-t border-slate-100 pt-3">
-                      <h4 className="text-[11px] font-black text-amber-700">افراد مرتبط با پرونده (نام و شماره تماس)</h4>
-                      {caseAssociatedPersons.map((p, idx) => (
-                        <div key={idx} className="flex gap-2 items-center">
-                          <input type="text" placeholder="نام" value={p.name} onChange={(e) => {
-                              const newList = [...caseAssociatedPersons];
-                              newList[idx].name = e.target.value;
-                              setCaseAssociatedPersons(newList);
-                          }} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 text-xs" />
-                          <input type="text" placeholder="شماره تماس" value={p.phone} onChange={(e) => {
-                              const newList = [...caseAssociatedPersons];
-                              newList[idx].phone = e.target.value;
-                              setCaseAssociatedPersons(newList);
-                          }} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 text-xs" />
-                          <button type="button" onClick={() => setCaseAssociatedPersons(caseAssociatedPersons.filter((_, i) => i !== idx))} className="text-red-500 hover:text-red-700 px-2 cursor-pointer">✕</button>
+                    <div className="space-y-1 col-span-1 sm:col-span-2 lg:col-span-2">
+                      <label className="text-slate-500">شماره قرارداد وکالتنامه</label>
+                      <input
+                        type="text"
+                        value={caseContractNo}
+                        onChange={(e) => setCaseContractNo(e.target.value)}
+                        placeholder="مثال: ۱۴۰۳/۱۲۳۴"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 text-xs font-medium text-left font-mono"
+                        dir="ltr"
+                      />
+                    </div>
+
+                    {/* Associated Persons Section - Touchable Box */}
+                    <div className="col-span-1 sm:col-span-2 lg:col-span-4 border-t border-slate-100 pt-3">
+                      <div 
+                        onClick={() => setShowAssociatedPersonsModal(true)}
+                        className="border border-amber-200 bg-amber-50/30 hover:bg-amber-100/40 p-2.5 rounded-xl cursor-pointer transition flex items-center justify-between gap-3 text-amber-900 select-none"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="bg-amber-100 p-1.5 rounded-lg text-amber-600">
+                            <Users className="w-4 h-4" />
+                          </div>
+                          <div className="text-right">
+                            <p className="font-extrabold text-xs text-slate-800">افراد مرتبط با پرونده</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">ثبت نام و شماره تماس افراد مرتبط</p>
+                          </div>
                         </div>
-                      ))}
-                      <button type="button" onClick={() => setCaseAssociatedPersons([...caseAssociatedPersons, { name: "", phone: "" }])} className="text-xs bg-slate-100 px-3 py-1.5 rounded-lg text-slate-700 font-bold hover:bg-slate-200 cursor-pointer">افزودن فرد مرتبط</button>
+                        <div className="text-left font-sans text-[10px] bg-white px-2 py-1 rounded border border-slate-100 text-slate-600 font-bold max-w-[200px] truncate">
+                          {caseAssociatedPersons.length > 0 ? `${toPersianDigits(caseAssociatedPersons.length)} فرد مرتبط ثبت شده` : "تنظیم افراد مرتبط"}
+                        </div>
+                      </div>
                     </div>
 
                     {/* مرحله رسیدگی */}
@@ -1936,10 +2063,13 @@ export default function CaseManager({
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 text-xs font-medium"
                       >
                         <option value="بدوی">بدوی</option>
-                        <option value="تجدیدنظر">تجدیدنظر</option>
-                        <option value="دیوان عالی">دیوان عالی</option>
+                        <option value="دادسرا">دادسرا</option>
+                        <option value="بازپرسی">بازپرسی</option>
+                        <option value="دادیاری">دادیاری</option>
+                        <option value="تجدید نظر استان">تجدید نظر استان</option>
+                        <option value="دیوان عالی کشور">دیوان عالی کشور</option>
                         <option value="دیوان عدالت اداری">دیوان عدالت اداری</option>
-                        <option value="شورا">شورا</option>
+                        <option value="شورای حل اختلاف">شورای حل اختلاف</option>
                         <option value="دادگاه صلح">دادگاه صلح</option>
                         <option value="اجرای احکام کیفری">اجرای احکام کیفری</option>
                         <option value="اجرای احکام مدنی">اجرای احکام مدنی</option>
@@ -2051,6 +2181,56 @@ export default function CaseManager({
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
+
+                          <div className="md:col-span-12 flex flex-wrap items-center gap-4 mt-2 border-t border-slate-200/50 pt-2" dir="rtl">
+                            <span className="text-[10px] text-slate-500 font-bold">تصویر رسید / فیش پرداختی:</span>
+                            <div className="flex items-center gap-3">
+                              <label className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg cursor-pointer text-[10px] font-black transition-all select-none">
+                                <Camera className="w-3.5 h-3.5" />
+                                <span>بارگذاری عکس رسید</span>
+                                <input 
+                                  type="file" 
+                                  accept="image/*" 
+                                  className="hidden" 
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const reader = new FileReader();
+                                      reader.onload = () => {
+                                        const newList = [...casePayments];
+                                        newList[idx].receiptImage = reader.result as string;
+                                        setCasePayments(newList);
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }
+                                  }}
+                                />
+                              </label>
+                              {p.receiptImage && (
+                                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-lg">
+                                  <img 
+                                    src={p.receiptImage} 
+                                    alt="رسید" 
+                                    className="w-6 h-6 rounded object-cover cursor-pointer hover:scale-105 transition-all" 
+                                    onClick={() => setSelectedReceiptImage(p.receiptImage || null)}
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <span className="text-[9px] text-emerald-700 font-bold">عکس ثبت شد</span>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => {
+                                      const newList = [...casePayments];
+                                      newList[idx].receiptImage = undefined;
+                                      setCasePayments(newList);
+                                    }} 
+                                    className="text-red-500 hover:text-red-750 text-[9px] font-extrabold cursor-pointer"
+                                  >
+                                    حذف
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ))}
                       {casePayments.length === 0 && <div className="text-center py-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-[10px] font-bold">هیچ تراکنشی افزوده نشده است.</div>}
@@ -2063,7 +2243,7 @@ export default function CaseManager({
                       <label className="text-slate-500">مدیریت اقساط (اختیاری)</label>
                       <button
                         type="button"
-                        onClick={() => setCaseInstallments([...caseInstallments, { id: "ins_" + Date.now(), amount: "0", dueDate: "", isPaid: false, paidDate: "" }])}
+                        onClick={() => setCaseInstallments([...caseInstallments, { id: "ins_" + Date.now(), amount: "0", dueDate: "", isPaid: false, paidDate: "", note: "" }])}
                         className="text-[10px] font-bold text-amber-600 hover:text-amber-700 bg-amber-50 px-2 py-1 rounded-lg flex items-center gap-1"
                       >
                         <Plus className="w-3 h-3" /> افزودن قسط
@@ -2080,64 +2260,96 @@ export default function CaseManager({
                       }
 
                       return (
-                        <div key={index} className={`grid grid-cols-1 md:grid-cols-12 gap-2 p-3 rounded-2xl border ${isOverdue ? 'bg-red-50/50 border-red-200' : 'bg-slate-50 border-slate-150'}`}>
-                          <div className="md:col-span-3">
-                            <input
-                              type="text"
-                              placeholder="مبلغ قسط (تومان)"
-                              value={formatNumberWithSeparator(ins.amount)}
-                              onChange={(e) => {
-                                const newInstallments = [...caseInstallments];
-                                newInstallments[index].amount = parseDigits(e.target.value).toString();
-                                setCaseInstallments(newInstallments);
-                              }}
-                              className={`w-full px-3 py-2 border rounded-xl outline-none font-mono text-xs font-medium ${isOverdue ? 'bg-white border-red-200 focus:ring-1 focus:ring-red-400' : 'bg-white border-slate-200 focus:ring-1 focus:ring-slate-900'}`}
-                            />
-                          </div>
-                          <div className="md:col-span-3">
-                            <input
-                              type="text"
-                              placeholder="سررسید (پیش‌فرض: ۱۴۰۴/۰۱/۰۱)"
-                              value={ins.dueDate}
-                              onChange={(e) => {
-                                const newInstallments = [...caseInstallments];
-                                newInstallments[index].dueDate = formatDateWithSlash(e.target.value);
-                                setCaseInstallments(newInstallments);
-                              }}
-                              className={`w-full px-3 py-2 border rounded-xl outline-none font-mono text-xs font-medium ${isOverdue ? 'bg-white border-red-200 focus:ring-1 focus:ring-red-400' : 'bg-white border-slate-200 focus:ring-1 focus:ring-slate-900'}`}
-                            />
-                            {isOverdue && <span className="text-[9px] font-black text-red-600 block mt-1 pr-1 flex items-center justify-start gap-1"><AlertCircle className="w-3 h-3" /> معوق (موعد گذشته)</span>}
-                          </div>
-                          <div className="md:col-span-2 flex flex-col justify-center gap-1">
-                            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none px-2">
-                               <input type="checkbox" checked={ins.isPaid || false} onChange={e => {
-                                 const newInstallments = [...caseInstallments];
-                                 newInstallments[index].isPaid = e.target.checked;
-                                 if (!e.target.checked) newInstallments[index].paidDate = "";
-                                 setCaseInstallments(newInstallments);
-                               }} className="w-4 h-4 rounded text-amber-500 focus:ring-0 cursor-pointer accent-amber-500" />
-                               پرداخت شد
-                            </label>
-                          </div>
-                          <div className="md:col-span-3">
-                            {ins.isPaid && (
-                               <input
-                                  type="text"
-                                  placeholder="تاریخ دریافت وجه..."
-                                  value={ins.paidDate || ""}
-                                  onChange={(e) => {
+                        <div key={index} className={`flex flex-col gap-2.5 p-3 rounded-2xl border ${isOverdue ? 'bg-red-50/50 border-red-200' : 'bg-slate-50 border-slate-150'}`}>
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-2 w-full">
+                            <div className="md:col-span-3">
+                              <input
+                                type="text"
+                                placeholder="مبلغ قسط (تومان)"
+                                value={formatNumberWithSeparator(ins.amount)}
+                                onChange={(e) => {
+                                  const newInstallments = [...caseInstallments];
+                                  newInstallments[index].amount = parseDigits(e.target.value).toString();
+                                  setCaseInstallments(newInstallments);
+                                }}
+                                className={`w-full px-3 py-2 border rounded-xl outline-none font-mono text-xs font-medium ${isOverdue ? 'bg-white border-red-200 focus:ring-1 focus:ring-red-400' : 'bg-white border-slate-200 focus:ring-1 focus:ring-slate-900'}`}
+                              />
+                            </div>
+                            <div className="md:col-span-3">
+                              <input
+                                type="text"
+                                placeholder="سررسید (پیش‌فرض: ۱۴۰۴/۰۱/۰۱)"
+                                value={ins.dueDate}
+                                onChange={(e) => {
+                                  const newInstallments = [...caseInstallments];
+                                  newInstallments[index].dueDate = formatDateWithSlash(e.target.value);
+                                  setCaseInstallments(newInstallments);
+                                }}
+                                className={`w-full px-3 py-2 border rounded-xl outline-none font-mono text-xs font-medium ${isOverdue ? 'bg-white border-red-200 focus:ring-1 focus:ring-red-400' : 'bg-white border-slate-200 focus:ring-1 focus:ring-slate-900'}`}
+                              />
+                              {isOverdue && <span className="text-[9px] font-black text-red-600 block mt-1 pr-1 flex items-center justify-start gap-1"><AlertCircle className="w-3 h-3" /> معوق (موعد گذشته)</span>}
+                            </div>
+                            <div className="md:col-span-2 flex flex-col justify-center gap-1">
+                              <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none px-2">
+                                 <input type="checkbox" checked={ins.isPaid || false} onChange={e => {
                                     const newInstallments = [...caseInstallments];
-                                    newInstallments[index].paidDate = formatDateWithSlash(e.target.value);
+                                    newInstallments[index].isPaid = e.target.checked;
+                                    if (!e.target.checked) {
+                                      newInstallments[index].paidDate = "";
+                                    } else {
+                                      const now = getCurrentJalali();
+                                      const todayStr = formatJalaliDate(now.jy, now.jm, now.jd);
+                                      newInstallments[index].paidDate = todayStr;
+                                      
+                                      const newPayment = {
+                                        id: "p_" + Date.now(),
+                                        title: `دریافت قسط ${toPersianDigits((index + 1).toString())}`,
+                                        amount: newInstallments[index].amount,
+                                        type: "پرداخت اقساط",
+                                        date: todayStr,
+                                        cardNumber: ""
+                                      };
+                                      setCasePayments([...casePayments, newPayment]);
+                                    }
                                     setCaseInstallments(newInstallments);
-                                  }}
-                                  className="w-full px-3 py-2 bg-white border border-green-200 rounded-xl outline-none focus:ring-1 focus:ring-green-500 font-mono text-xs font-medium text-green-700 placeholder-green-300"
-                                />
-                            )}
+                                  }} className="w-4 h-4 rounded text-amber-500 focus:ring-0 cursor-pointer accent-amber-500" />
+                                 پرداخت شد
+                              </label>
+                            </div>
+                            <div className="md:col-span-3">
+                              {ins.isPaid && (
+                                 <input
+                                    type="text"
+                                    placeholder="تاریخ دریافت وجه..."
+                                    value={ins.paidDate || ""}
+                                    onChange={(e) => {
+                                      const newInstallments = [...caseInstallments];
+                                      newInstallments[index].paidDate = formatDateWithSlash(e.target.value);
+                                      setCaseInstallments(newInstallments);
+                                    }}
+                                    className="w-full px-3 py-2 bg-white border border-green-200 rounded-xl outline-none focus:ring-1 focus:ring-green-500 font-mono text-xs font-medium text-green-700 placeholder-green-300"
+                                  />
+                              )}
+                            </div>
+                            <div className="md:col-span-1 flex items-center justify-center">
+                              <button type="button" onClick={() => setCaseInstallments(caseInstallments.filter((_, i) => i !== index))} className={`p-1.5 rounded-lg cursor-pointer ${isOverdue ? 'bg-red-100/50 text-red-600 hover:bg-red-100' : 'bg-red-50 text-red-500 hover:bg-red-100'}`}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
-                          <div className="md:col-span-1 flex items-center justify-center">
-                            <button type="button" onClick={() => setCaseInstallments(caseInstallments.filter((_, i) => i !== index))} className={`p-1.5 rounded-lg cursor-pointer ${isOverdue ? 'bg-red-100/50 text-red-600 hover:bg-red-100' : 'bg-red-50 text-red-500 hover:bg-red-100'}`}>
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+
+                          <div className="w-full">
+                            <input
+                              type="text"
+                              placeholder="توضیحات و بابت قسط (مثلاً: قسط دوم حق‌الوکاله، بابت ورود به مرحله تجدیدنظر، چک تضمینی و...)"
+                              value={ins.note || ""}
+                              onChange={(e) => {
+                                const newInstallments = [...caseInstallments];
+                                newInstallments[index].note = e.target.value;
+                                setCaseInstallments(newInstallments);
+                              }}
+                              className={`w-full px-3 py-2 border rounded-xl outline-none text-xs font-medium ${isOverdue ? 'bg-white border-red-200 focus:ring-1 focus:ring-red-400' : 'bg-white border-slate-200 focus:ring-1 focus:ring-slate-900'}`}
+                            />
                           </div>
                         </div>
                       );
@@ -2173,238 +2385,804 @@ export default function CaseManager({
         </div>
       )}
 
+      {/* Modal 2-B: Set Case Numbers Sub-Modal */}
+      {showCaseNumbersModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[70] animate-fadeIn backdrop-blur-sm" dir="rtl">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-xl max-w-2xl w-full p-5 space-y-4 text-xs font-bold text-slate-700 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex flex-col text-right">
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-amber-500" />
+                  تنظیم شماره‌های پرونده
+                </h3>
+                <span className="text-[10px] text-slate-400 mt-0.5">لطفاً شماره پرونده‌های مربوطه را در فیلدهای زیر وارد نمایید.</span>
+              </div>
+              <button type="button" onClick={() => setShowCaseNumbersModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-right">
+              
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-slate-500 block">شماره پرونده ثنا (عدل ایران - ۱۶ الی ۱۸ رقمی) *</label>
+                <input
+                  type="text"
+                  maxLength={18}
+                  value={caseNo}
+                  onChange={(e) => setCaseNo(e.target.value)}
+                  placeholder="مثلا: ۱۴۰۳۹۸۷۶۵۴۳۲۱۰۰۱"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده دادگاه بدوی</label>
+                <input
+                  type="text"
+                  value={courtCaseNo}
+                  onChange={(e) => setCourtCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۶۸۹۲۰۰"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده تجدید نظر</label>
+                <input
+                  type="text"
+                  value={appealCaseNo}
+                  onChange={(e) => setAppealCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۹۸۷۰۰۰"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده واخواهی</label>
+                <input
+                  type="text"
+                  value={rejectionCaseNo}
+                  onChange={(e) => setRejectionCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۴۵۶۰۰۰"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده دیوان عالی / فرجام خواهی</label>
+                <input
+                  type="text"
+                  value={supremeCaseNo}
+                  onChange={(e) => setSupremeCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۵۶۷۰۰۰"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده اجرای احکام کیفری</label>
+                <input
+                  type="text"
+                  value={executionCaseNo}
+                  onChange={(e) => setExecutionCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۷۸۹۰۰۰"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده اجرای احکام مدنی</label>
+                <input
+                  type="text"
+                  value={executionCivilCaseNo}
+                  onChange={(e) => setExecutionCivilCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۱۲۳۰۰۰"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده اعسار</label>
+                <input
+                  type="text"
+                  value={insolvencyCaseNo}
+                  onChange={(e) => setInsolvencyCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۸۹۰۰۰۰"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده بازپرسی</label>
+                <input
+                  type="text"
+                  value={investigationCaseNo}
+                  onChange={(e) => setInvestigationCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۱۲۳۰۰۱"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">شماره پرونده دادیاری</label>
+                <input
+                  type="text"
+                  value={prosecutionCaseNo}
+                  onChange={(e) => setProsecutionCaseNo(e.target.value)}
+                  placeholder="مثال: ۱۴۰۳۱۲۳۰۰۲"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">کد بایگانی دفتر</label>
+                <input
+                  type="text"
+                  value={caseArchiveNo}
+                  onChange={(e) => setCaseArchiveNo(e.target.value)}
+                  placeholder="اختیاری"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!caseNo.trim()) {
+                    alert("لطفاً شماره پرونده ثنا را وارد نمایید.");
+                    return;
+                  }
+                  setShowCaseNumbersModal(false);
+                }}
+                className="px-6 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition cursor-pointer text-xs select-none"
+              >
+                تایید و ثبت شماره‌ها
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2-C: Set Associated Persons Sub-Modal */}
+      {showAssociatedPersonsModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[70] animate-fadeIn backdrop-blur-sm" dir="rtl">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-xl max-w-2xl w-full p-5 space-y-4 text-xs font-bold text-slate-700 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex flex-col text-right">
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-500" />
+                  افراد مرتبط با پرونده
+                </h3>
+                <span className="text-[10px] text-slate-400 mt-0.5">ثبت اطلاعات نام و شماره تماس افراد مرتبط با پرونده (شهود، مطلعین و...)</span>
+              </div>
+              <button type="button" onClick={() => setShowAssociatedPersonsModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
+            </div>
+
+            <div className="space-y-3 text-right">
+              {caseAssociatedPersons.length === 0 ? (
+                <div className="text-center py-6 border-2 border-dashed border-slate-100 rounded-xl text-slate-400 font-medium">
+                  هیچ فرد مرتبطی ثبت نشده است. برای افزودن دکمه زیر را فشار دهید.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {caseAssociatedPersons.map((p, idx) => (
+                    <div key={idx} className="flex gap-2 items-center bg-slate-50/50 p-2 rounded-xl border border-slate-100">
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[10px] text-slate-400 block pr-1">نام و نام خانوادگی</label>
+                        <input 
+                          type="text" 
+                          placeholder="مثال: علی احمدی" 
+                          value={p.name} 
+                          onChange={(e) => {
+                            const newList = [...caseAssociatedPersons];
+                            newList[idx].name = e.target.value;
+                            setCaseAssociatedPersons(newList);
+                          }} 
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-slate-900 text-xs font-bold" 
+                        />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[10px] text-slate-400 block pr-1">شماره تماس</label>
+                        <input 
+                          type="text" 
+                          placeholder="مثال: ۰۹۱۲۳۴۵۶۷۸۹" 
+                          value={p.phone} 
+                          onChange={(e) => {
+                            const newList = [...caseAssociatedPersons];
+                            newList[idx].phone = e.target.value;
+                            setCaseAssociatedPersons(newList);
+                          }} 
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-slate-900 text-xs font-mono font-medium text-left" 
+                          dir="ltr"
+                        />
+                      </div>
+                      <div className="pt-5">
+                        <button 
+                          type="button" 
+                          onClick={() => setCaseAssociatedPersons(caseAssociatedPersons.filter((_, i) => i !== idx))} 
+                          className="text-red-500 hover:text-red-700 p-2 cursor-pointer bg-red-50 hover:bg-red-100 rounded-lg transition"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button 
+                type="button" 
+                onClick={() => setCaseAssociatedPersons([...caseAssociatedPersons, { name: "", phone: "" }])} 
+                className="text-xs bg-slate-100 px-4 py-2 rounded-xl text-slate-700 font-bold hover:bg-slate-200 cursor-pointer w-full flex items-center justify-center gap-1 transition"
+              >
+                <Plus className="w-4 h-4" />
+                افزودن فرد مرتبط جدید
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowAssociatedPersonsModal(false)}
+                className="px-6 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition cursor-pointer text-xs select-none"
+              >
+                تایید و ذخیره لیست
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2-D: Set Case Dates Sub-Modal */}
+      {showCaseDatesModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[70] animate-fadeIn backdrop-blur-sm" dir="rtl">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-xl max-w-sm w-full p-5 space-y-4 text-xs font-bold text-slate-700">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex flex-col text-right">
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-amber-500" />
+                  سابقه تاریخ پرونده
+                </h3>
+                <span className="text-[10px] text-slate-400 mt-0.5">ثبت تاریخ‌های مربوط به این پرونده</span>
+              </div>
+              <button type="button" onClick={() => setShowCaseDatesModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
+            </div>
+
+            <div className="space-y-4 text-right">
+              <div className="space-y-1">
+                <label className="text-slate-500 block">تاریخ ثبت پرونده در دادگستری</label>
+                <input
+                  type="text"
+                  placeholder="مثال: ۱۴۰۳/۰۱/۰۱"
+                  value={caseCourtRegistrationDate}
+                  onChange={(e) => setCaseCourtRegistrationDate(formatDateWithSlash(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">تاریخ تشکیل پرونده در این سامانه</label>
+                <input
+                  type="text"
+                  placeholder="مثال: ۱۴۰۳/۰۱/۰۱"
+                  value={caseFilingDate}
+                  onChange={(e) => setCaseFilingDate(formatDateWithSlash(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">تاریخ اخذ وکالت از موکل</label>
+                <input
+                  type="text"
+                  placeholder="مثال: ۱۴۰۳/۰۱/۰۱"
+                  value={casePowerOfAttorneyDate}
+                  onChange={(e) => setCasePowerOfAttorneyDate(formatDateWithSlash(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 block">تاریخ مختومه شدن پرونده</label>
+                <input
+                  type="text"
+                  placeholder="مثال: ۱۴۰۳/۰۱/۰۱"
+                  value={caseClosedDate}
+                  onChange={(e) => setCaseClosedDate(formatDateWithSlash(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-1 focus:ring-slate-900 font-mono text-xs font-medium text-left"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowCaseDatesModal(false)}
+                className="px-6 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition cursor-pointer text-xs select-none w-full"
+              >
+                تایید
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal 3-B: Printable Case View */}
       {printableCase && (
         <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-50 animate-fadeIn backdrop-blur-sm overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full p-8 font-sans text-right" dir="rtl">
-            {/* Printable Content - Detailed View */}
-            <div id="printable-content" className="text-xs text-slate-900 space-y-4">
+            
+            {/* Modal Header */}
+            <div className="border-b border-slate-100 pb-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl border border-amber-100 shadow-sm shrink-0">
+                  <Folder className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-slate-850">
+                    پرونده: <span className="text-blue-600 font-extrabold">{toPersianDigits(printableCase.title)}</span>
+                  </h2>
+                  <p className="text-[10px] text-slate-400 mt-1">جهت مشاهده اطلاعات مربوط به هر بخش، روی آن کلیک کنید</p>
+                </div>
+              </div>
+              {previewSubPage !== 3 && (
+                <div className="text-left">
+                  <span className="text-[10px] bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-mono font-bold">
+                    شماره پرونده: {toPersianDigits(printableCase.caseNumber)}
+                  </span>
+                </div>
+              )}
+            </div>
 
-                <h1 className="text-lg font-black text-center border-b pb-2">پرونده: <span className="text-blue-600 font-extrabold">{toPersianDigits(printableCase.title)}</span></h1>
-                
-                <div className="space-y-4 text-right" dir="rtl">
+            {/* Main Interactive Views */}
+            {previewSubPage === null ? (
+              /* Option Hub (Main Menu) */
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* ۱. مشخصات هویتی موکل */}
-                  <div className="mb-4">
-                    <h3 className="text-xs font-bold text-slate-850 mb-2 border-r-4 border-amber-500 pr-2 pb-0.5">۱. مشخصات هویتی موکل</h3>
-                    <div className="grid grid-cols-2 gap-4 border border-slate-200 p-4 rounded-2xl text-xs bg-slate-50/30">
-                      {hasValue(printableCase.clientName) && (
-                        <p><strong>نام موکل:</strong> <span className="text-blue-600 font-semibold">{printableCase.clientName}</span></p>
-                      )}
-                      {hasValue(printableCase.clientRole) && (
-                        <p><strong>نقش موکل:</strong> <span className="text-blue-600 font-semibold">{printableCase.clientRole}</span></p>
-                      )}
+                  <div 
+                    onClick={() => setPreviewSubPage(1)}
+                    className="p-5 rounded-2xl border border-slate-150 bg-slate-50/50 hover:bg-amber-50/20 hover:border-amber-200 cursor-pointer transition-all duration-200 group flex items-start gap-4 shadow-sm hover:shadow-md select-none"
+                  >
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-100 transition-all">
+                      <User className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 text-right">
+                      <h4 className="text-xs font-black text-slate-800 group-hover:text-blue-700 transition">۱. مشخصات هویتی موکل</h4>
+                      <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">مشاهده کدملی، شماره همراه، اطلاعات پایه و سوابق هویتی موکل پرونده</p>
                     </div>
                   </div>
 
                   {/* ۲. اطلاعات پرونده */}
-                  <div className="mb-4">
-                    <h3 className="text-xs font-bold text-slate-850 mb-2 border-r-4 border-amber-500 pr-2 pb-0.5">۲. اطلاعات پرونده</h3>
-                    <div className="grid grid-cols-2 gap-4 border border-slate-200 p-4 rounded-2xl text-xs bg-slate-50/30">
-                      {hasValue(printableCase.title) && (
-                        <p><strong>موضوع پرونده (خواسته):</strong> <span className="text-blue-600 font-semibold">{toPersianDigits(printableCase.title)}</span></p>
-                      )}
-                      {hasValue(printableCase.caseNumber) && (
-                        <p><strong>شماره پرونده (ثنا):</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.caseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.branch) && (
-                        <p><strong>شعبه دادگاه:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits(printableCase.branch)}</span></p>
-                      )}
-                      {hasValue(printableCase.sanaPassword) && (
-                        <p><strong>رمز شخصی ثنا:</strong> <span className="text-blue-600 font-semibold font-mono">{printableCase.sanaPassword}</span></p>
-                      )}
-                      {hasValue(printableCase.opposingPartyName) && (
-                        <p><strong>طرف مقابل پرونده:</strong> <span className="text-blue-600 font-semibold">{printableCase.opposingPartyName}</span></p>
-                      )}
-                      {hasValue(printableCase.filingDate) && (
-                        <p><strong>تاریخ تشکیل پرونده:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.filingDate)}</span></p>
-                      )}
-                      {hasValue(printableCase.createdAt) && (
-                        <p><strong>تاریخ ثبت پرونده:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.createdAt)}</span></p>
-                      )}
-                      {hasValue(printableCase.stage) && (
-                        <p><strong>مرحلۀ پرونده:</strong> <span className="text-blue-600 font-semibold">{printableCase.stage}</span></p>
-                      )}
-                      {hasValue(printableCase.status) && (
-                        <p><strong>وضعیت پرونده:</strong> <span className="text-blue-600 font-semibold">{printableCase.status}</span></p>
-                      )}
-                      {hasValue(printableCase.courtCaseNumber) && (
-                        <p><strong>شماره دادگاه بدوی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.courtCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.archiveNumber) && (
-                        <p><strong>کلاسه بایگانی دفتر:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.archiveNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.appealCaseNumber) && (
-                        <p><strong>شماره تجدید نظر:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.appealCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.rejectionCaseNumber) && (
-                        <p><strong>شماره واخواهی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.rejectionCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.supremeCaseNumber) && (
-                        <p><strong>فرجام خواهی/دیوان:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.supremeCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.executionCaseNumber) && (
-                        <p><strong>اجرای احکام کیفری:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.executionCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.executionCivilCaseNumber) && (
-                        <p><strong>اجرای احکام مدنی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.executionCivilCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.insolvencyCaseNumber) && (
-                        <p><strong>شماره پرونده اعسار:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.insolvencyCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.investigationCaseNumber) && (
-                        <p><strong>شماره پرونده بازپرسی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.investigationCaseNumber)}</span></p>
-                      )}
-                      {hasValue(printableCase.prosecutionCaseNumber) && (
-                        <p><strong>شماره پرونده دادیاری:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.prosecutionCaseNumber)}</span></p>
-                      )}
+                  <div 
+                    onClick={() => setPreviewSubPage(2)}
+                    className="p-5 rounded-2xl border border-slate-150 bg-slate-50/50 hover:bg-amber-50/20 hover:border-amber-200 cursor-pointer transition-all duration-200 group flex items-start gap-4 shadow-sm hover:shadow-md select-none"
+                  >
+                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-100 transition-all">
+                      <Briefcase className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 text-right">
+                      <h4 className="text-xs font-black text-slate-800 group-hover:text-indigo-700 transition">۲. اطلاعات پرونده</h4>
+                      <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">مشاهده شماره پرونده ثنا، شعبه دادگاه، خواسته، شاکی/متهم و کلاسه بایگانی</p>
                     </div>
                   </div>
 
                   {/* ۳. وضعیت مالی و قرارداد */}
-                  {(hasValue(printableCase.totalContractAmount) || hasValue(printableCase.downPayment) || hasValue(printableCase.receivedFee) || hasValue(printableCase.paidExpenses) || (printableCase.installments && printableCase.installments.length > 0) || (printableCase.payments && printableCase.payments.length > 0)) && (
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-xs font-bold text-slate-850 border-r-4 border-amber-500 pr-2 pb-0.5">۳. وضعیت مالی و قرارداد</h3>
-                        <label className="no-print flex items-center gap-2 cursor-pointer bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition-colors">
-                          <input 
-                            type="checkbox" 
-                            checked={includeFinancialInPrint} 
-                            onChange={(e) => setIncludeFinancialInPrint(e.target.checked)}
-                            className="w-4 h-4 accent-amber-500 rounded border-slate-300"
-                          />
-                          <span className="text-[10px] font-bold text-slate-700">آیا این موارد چاپ شود؟</span>
-                        </label>
-                      </div>
-                      
-                      {includeFinancialInPrint ? (
-                        <>
-                          <div className="grid grid-cols-2 gap-4 border border-slate-200 p-4 rounded-2xl text-xs bg-slate-50/30">
-                            {hasValue(printableCase.totalContractAmount) && (
-                              <p><strong>کل مبلغ قرارداد:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits((printableCase.totalContractAmount ?? 0).toLocaleString())} تومان</span></p>
-                            )}
-                            {hasValue(printableCase.downPayment) && (
-                              <p><strong>پیش‌پرداخت:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits((printableCase.downPayment ?? 0).toLocaleString())} تومان</span></p>
-                            )}
-                            {hasValue(printableCase.receivedFee) && (
-                              <p><strong>حق‌الوکاله دریافتی:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits((printableCase.receivedFee ?? 0).toLocaleString())} تومان</span></p>
-                            )}
-                            {hasValue(printableCase.paidExpenses) && (
-                              <p><strong>هزینه‌های انجام شده:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits((printableCase.paidExpenses ?? 0).toLocaleString())} تومان</span></p>
-                            )}
-                          </div>
-                          
-                          {printableCase.installments && printableCase.installments.length > 0 && (
-                            <div className="mt-3 overflow-hidden border border-slate-200 rounded-2xl">
-                              <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
-                                <h4 className="text-[10px] font-black text-slate-700">جدول اقساط حق‌الوکاله</h4>
-                              </div>
-                              <table className="w-full text-right text-xs border-collapse" dir="rtl">
-                                <thead>
-                                  <tr className="bg-slate-50/50 font-bold text-slate-600 border-b border-slate-200">
-                                    <th className="p-2 border-l border-slate-150 text-center w-12">ردیف</th>
-                                    <th className="p-2 border-l border-slate-150">مبلغ قسط</th>
-                                    <th className="p-2 border-l border-slate-150">تاریخ سررسید</th>
-                                    <th className="p-2">وضعیت پرداخت</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {printableCase.installments.map((ins, idx) => (
-                                    <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                                      <td className="p-2 border-l border-slate-100 text-slate-500 font-mono text-[10px] text-center">{toPersianDigits(idx + 1)}</td>
-                                      <td className="p-2 border-l border-slate-100 text-blue-600 font-semibold">{toPersianDigits((ins.amount ?? 0).toLocaleString())} تومان</td>
-                                      <td className="p-2 border-l border-slate-100 text-slate-600 font-mono">{toPersianDigits(ins.dueDate)}</td>
-                                      <td className="p-2">
-                                        {ins.isPaid ? (
-                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 border border-green-200 text-[10px] font-bold text-green-600">
-                                            پرداخت شده {ins.paidDate ? `(در ` + toPersianDigits(ins.paidDate) + `)` : ``}
-                                          </span>
-                                        ) : (
-                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-600">
-                                            معوق / در انتظار پرداخت
-                                          </span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-
-                          {printableCase.payments && printableCase.payments.length > 0 && (
-                            <div className="mt-3 overflow-hidden border border-slate-200 rounded-2xl">
-                              <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
-                                <h4 className="text-[10px] font-black text-slate-700">تراکنش‌ها و وجوه دریافتی</h4>
-                              </div>
-                              <table className="w-full text-right text-xs border-collapse" dir="rtl">
-                                <thead>
-                                  <tr className="bg-slate-50/50 font-bold text-slate-600 border-b border-slate-200">
-                                    <th className="p-2 border-l border-slate-150 text-center w-12">ردیف</th>
-                                    <th className="p-2 border-l border-slate-150">بابت / شرح</th>
-                                    <th className="p-2 border-l border-slate-150">مبلغ دریافتی</th>
-                                    <th className="p-2 border-l border-slate-150">نوع پرداخت</th>
-                                    <th className="p-2">تاریخ پرداخت</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {printableCase.payments.map((p, idx) => (
-                                    <tr key={p.id || idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                                      <td className="p-2 border-l border-slate-100 text-slate-500 font-mono text-[10px] text-center">{toPersianDigits(idx + 1)}</td>
-                                      <td className="p-2 border-l border-slate-100 text-slate-700">{p.title}</td>
-                                      <td className="p-2 border-l border-slate-100 text-green-600 font-semibold">{toPersianDigits((p.amount ?? 0).toLocaleString())} تومان</td>
-                                      <td className="p-2 border-l border-slate-100 text-slate-600">{p.type}</td>
-                                      <td className="p-2 font-mono text-slate-600">{toPersianDigits(p.date)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="border border-dashed border-slate-300 p-4 rounded-2xl text-center">
-                          <p className="text-[10px] text-slate-400 font-medium">بخش مالی در نسخه چاپی حذف خواهد شد.</p>
-                        </div>
-                      )}
+                  <div 
+                    onClick={() => setPreviewSubPage(3)}
+                    className="p-5 rounded-2xl border border-slate-150 bg-slate-50/50 hover:bg-amber-50/20 hover:border-amber-200 cursor-pointer transition-all duration-200 group flex items-start gap-4 shadow-sm hover:shadow-md select-none"
+                  >
+                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl group-hover:bg-emerald-100 transition-all">
+                      <Coins className="w-5 h-5" />
                     </div>
-                  )}
+                    <div className="flex-1 text-right">
+                      <h4 className="text-xs font-black text-slate-800 group-hover:text-emerald-700 transition">۳. وضعیت مالی و قرارداد</h4>
+                      <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">تراز حق‌الوکاله، هزینه‌های دادرسی، پرداخت پیش‌پرداخت، مبالغ اقساط و تراکنش‌ها</p>
+                    </div>
+                  </div>
 
                   {/* ۴. افراد مرتبط با پرونده */}
-                  {printableCase.associatedPersons && printableCase.associatedPersons.length > 0 && (
-                    <div className="mb-4">
-                      <h3 className="text-xs font-bold text-slate-850 mb-2 border-r-4 border-amber-500 pr-2 pb-0.5">۴. افراد مرتبط با پرونده</h3>
-                      <table className="w-full border-collapse border border-slate-200 text-xs text-right rounded-2xl overflow-hidden" dir="rtl">
-                        <thead>
-                          <tr className="bg-slate-50 font-bold">
-                            <th className="border border-slate-200 p-2 text-right">نام و نام خانوادگی</th>
-                            <th className="border border-slate-200 p-2 text-right">شماره تماس (تلفن همراه)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {printableCase.associatedPersons.map((person, i) => (
-                            <tr key={i} className="hover:bg-slate-50/50">
-                              <td className="border border-slate-200 p-2 text-blue-600 font-semibold">{person.name || "-"}</td>
-                              <td className="border border-slate-200 p-2 font-mono text-blue-600 font-semibold">{person.phone ? toPersianDigits(person.phone) : "-"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  <div 
+                    onClick={() => setPreviewSubPage(4)}
+                    className="p-5 rounded-2xl border border-slate-150 bg-slate-50/50 hover:bg-amber-50/20 hover:border-amber-200 cursor-pointer transition-all duration-200 group flex items-start gap-4 shadow-sm hover:shadow-md select-none"
+                  >
+                    <div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-100 transition-all">
+                      <Users className="w-5 h-5" />
                     </div>
-                  )}
+                    <div className="flex-1 text-right">
+                      <h4 className="text-xs font-black text-slate-800 group-hover:text-amber-700 transition">۴. افراد مرتبط با پرونده</h4>
+                      <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">اسامی شهود، کارشناسان، اعضای خانواده، وکلا و افراد ذی‌ربط همراه تلفن تماس</p>
+                    </div>
+                  </div>
 
-                  {/* ۵. شرح خلاصه و مبانی وضعیت پرونده */}
+                  {/* ۵. شرح خلاصه پرونده */}
                   {hasValue(printableCase.description) && (
-                    <div className="mb-4">
-                      <h3 className="text-xs font-bold text-slate-850 mb-2 border-r-4 border-amber-500 pr-2 pb-0.5">۵. شرح خلاصه و مبانی وضعیت پرونده</h3>
-                      <div className="border border-slate-200 p-4 rounded-2xl text-xs bg-slate-50/30 text-blue-600 font-semibold whitespace-pre-line">{toPersianDigits(printableCase.description)}</div>
+                    <div 
+                      onClick={() => setPreviewSubPage(5)}
+                      className="p-5 rounded-2xl border border-slate-150 bg-slate-50/50 hover:bg-amber-50/20 hover:border-amber-200 cursor-pointer transition-all duration-200 group flex items-start gap-4 shadow-sm hover:shadow-md select-none sm:col-span-2"
+                    >
+                      <div className="p-3 bg-teal-50 text-teal-600 rounded-xl group-hover:bg-teal-100 transition-all">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 text-right">
+                        <h4 className="text-xs font-black text-slate-800 group-hover:text-teal-700 transition">۵. شرح خلاصه و مبانی وضعیت پرونده</h4>
+                        <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">مشاهده چکیده وضعیت پرونده، صورت‌جلسه دفاعیه و یادداشت اقدامات کلیدی انجام‌شده</p>
+                      </div>
                     </div>
                   )}
                 </div>
-            </div>
+              </div>
+            ) : previewSubPage === 1 ? (
+              /* Sub-page 1: Client Identity */
+              <div className="space-y-4 animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-black">۱</span>
+                    مشخصات هویتی موکل
+                  </h3>
+                  <button 
+                    onClick={() => setPreviewSubPage(null)} 
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    بازگشت به منو
+                  </button>
+                </div>
 
-            {/* Bottom Actions row (Visible on screen only) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border border-slate-200 p-6 rounded-2xl text-xs bg-slate-50/30">
+                  {hasValue(printableCase.clientName) && (
+                    <p className="text-slate-700"><strong>نام موکل:</strong> <span className="text-blue-600 font-semibold">{printableCase.clientName}</span></p>
+                  )}
+                  {hasValue(printableCase.clientRole) && (
+                    <p className="text-slate-700"><strong>نقش موکل:</strong> <span className="text-blue-600 font-semibold">{printableCase.clientRole}</span></p>
+                  )}
+                  {(() => {
+                    const cl = clients.find(cl => cl.id === printableCase.clientId);
+                    if (!cl) return null;
+                    return (
+                      <>
+                        {cl.phoneNumber && (
+                          <p className="text-slate-700"><strong>تلفن همراه:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(cl.phoneNumber)}</span></p>
+                        )}
+                        {cl.nationalId && (
+                          <p className="text-slate-700"><strong>کد ملی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(cl.nationalId)}</span></p>
+                        )}
+                        {cl.birthDate && (
+                          <p className="text-slate-700"><strong>تاریخ تولد:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(cl.birthDate)}</span></p>
+                        )}
+                        {cl.fatherName && (
+                          <p className="text-slate-700"><strong>نام پدر:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits(cl.fatherName)}</span></p>
+                        )}
+                        {cl.address && (
+                          <p className="text-slate-700 sm:col-span-2"><strong>نشانی محل سکونت / کار:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits(cl.address)}</span></p>
+                        )}
+                        {cl.description && (
+                          <p className="text-slate-700 sm:col-span-2"><strong>یادداشت پرونده موکل:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits(cl.description)}</span></p>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            ) : previewSubPage === 2 ? (
+              /* Sub-page 2: Case Details */
+              <div className="space-y-4 animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-[10px] font-black">۲</span>
+                    اطلاعات پرونده
+                  </h3>
+                  <button 
+                    onClick={() => setPreviewSubPage(null)} 
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    بازگشت به منو
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border border-slate-200 p-6 rounded-2xl text-xs bg-slate-50/30">
+                  {hasValue(printableCase.title) && (
+                    <p className="text-slate-700"><strong>موضوع پرونده (خواسته):</strong> <span className="text-blue-600 font-semibold">{toPersianDigits(printableCase.title)}</span></p>
+                  )}
+                  {hasValue(printableCase.caseNumber) && (
+                    <p className="text-slate-700"><strong>شماره پرونده (ثنا):</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.caseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.branch) && (
+                    <p className="text-slate-700"><strong>شعبه دادگاه:</strong> <span className="text-blue-600 font-semibold">{toPersianDigits(printableCase.branch)}</span></p>
+                  )}
+                  {hasValue(printableCase.sanaPassword) && (
+                    <p className="text-slate-700"><strong>رمز شخصی ثنا:</strong> <span className="text-blue-600 font-semibold font-mono">{printableCase.sanaPassword}</span></p>
+                  )}
+                  {hasValue(printableCase.contractNumber) && (
+                    <p className="text-slate-700"><strong>شماره قرارداد وکالتنامه:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.contractNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.opposingPartyName) && (
+                    <p className="text-slate-700"><strong>طرف مقابل پرونده:</strong> <span className="text-blue-600 font-semibold">{printableCase.opposingPartyName}</span></p>
+                  )}
+                  {hasValue(printableCase.filingDate) && (
+                    <p className="text-slate-700"><strong>تاریخ تشکیل در سامانه:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.filingDate)}</span></p>
+                  )}
+                  {hasValue(printableCase.courtRegistrationDate) && (
+                    <p className="text-slate-700"><strong>تاریخ ثبت دادگستری:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.courtRegistrationDate)}</span></p>
+                  )}
+                  {hasValue(printableCase.powerOfAttorneyDate) && (
+                    <p className="text-slate-700"><strong>تاریخ اخذ وکالت:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.powerOfAttorneyDate)}</span></p>
+                  )}
+                  {hasValue(printableCase.closedDate) && (
+                    <p className="text-slate-700"><strong>تاریخ مختومه شدن:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.closedDate)}</span></p>
+                  )}
+                  {hasValue(printableCase.createdAt) && (
+                    <p className="text-slate-700"><strong>تاریخ ثبت پرونده:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.createdAt)}</span></p>
+                  )}
+                  {hasValue(printableCase.stage) && (
+                    <p className="text-slate-700"><strong>مرحلۀ پرونده:</strong> <span className="text-blue-600 font-semibold">{printableCase.stage}</span></p>
+                  )}
+                  {hasValue(printableCase.status) && (
+                    <p className="text-slate-700"><strong>وضعیت پرونده:</strong> <span className="text-blue-600 font-semibold">{printableCase.status}</span></p>
+                  )}
+                  {hasValue(printableCase.courtCaseNumber) && (
+                    <p className="text-slate-700"><strong>شماره دادگاه بدوی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.courtCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.archiveNumber) && (
+                    <p className="text-slate-700"><strong>کلاسه بایگانی دفتر:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.archiveNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.appealCaseNumber) && (
+                    <p className="text-slate-700"><strong>شماره تجدید نظر:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.appealCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.rejectionCaseNumber) && (
+                    <p className="text-slate-700"><strong>شماره واخواهی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.rejectionCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.supremeCaseNumber) && (
+                    <p className="text-slate-700"><strong>فرجام خواهی/دیوان:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.supremeCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.executionCaseNumber) && (
+                    <p className="text-slate-700"><strong>اجرای احکام کیفری:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.executionCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.executionCivilCaseNumber) && (
+                    <p className="text-slate-700"><strong>اجرای احکام مدنی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.executionCivilCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.insolvencyCaseNumber) && (
+                    <p className="text-slate-700"><strong>شماره پرونده اعسار:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.insolvencyCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.investigationCaseNumber) && (
+                    <p className="text-slate-700"><strong>شماره پرونده بازپرسی:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.investigationCaseNumber)}</span></p>
+                  )}
+                  {hasValue(printableCase.prosecutionCaseNumber) && (
+                    <p className="text-slate-700"><strong>شماره پرونده دادیاری:</strong> <span className="text-blue-600 font-semibold font-mono">{toPersianDigits(printableCase.prosecutionCaseNumber)}</span></p>
+                  )}
+                </div>
+              </div>
+            ) : previewSubPage === 3 ? (
+              /* Sub-page 3: Finance & Payments */
+              <div className="space-y-4 animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-[10px] font-black">۳</span>
+                    وضعیت مالی و قرارداد
+                  </h3>
+                  <button 
+                    onClick={() => setPreviewSubPage(null)} 
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    بازگشت به منو
+                  </button>
+                </div>
+
+                {/* Print confirmation block */}
+                <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <span className="text-[11px] font-bold text-slate-700">آیا اطلاعات مالی جهت چاپ نمایش داده شود؟</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIncludeFinancialInPrint(true)}
+                      className={`px-4 py-1.5 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
+                        includeFinancialInPrint
+                          ? "bg-amber-500 text-white shadow-sm"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      بله (نمایش در چاپ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIncludeFinancialInPrint(false)}
+                      className={`px-4 py-1.5 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
+                        !includeFinancialInPrint
+                          ? "bg-slate-300 text-slate-800 shadow-sm"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      خیر (پنهان در چاپ)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Total Fee Card */}
+                <div className="mt-4 border border-emerald-200 p-4 rounded-2xl bg-emerald-50 flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-800">مبلغ کل حق‌الوکاله</span>
+                  <span className="text-emerald-950 font-black text-xs">
+                    {hasValue(printableCase.totalContractAmount) 
+                      ? `${toPersianDigits((printableCase.totalContractAmount ?? 0).toLocaleString())} تومان`
+                      : "۰ تومان"}
+                  </span>
+                </div>
+
+                {/* Installments Block */}
+                {printableCase.installments && printableCase.installments.length > 0 && (
+                  <div className="mt-4 border border-slate-200 rounded-2xl max-h-60 overflow-y-auto">
+                    <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 sticky top-0">
+                      <h4 className="text-[11px] font-black text-slate-700">اقساط تعیین شده</h4>
+                    </div>
+                    <table className="w-full text-right text-xs border-collapse" dir="rtl">
+                      <thead>
+                        <tr className="bg-slate-50/50 font-bold text-slate-600 border-b border-slate-200">
+                          <th className="p-3 border-l border-slate-150 text-center w-12">ردیف</th>
+                          <th className="p-3 border-l border-slate-150">مبلغ قسط</th>
+                          <th className="p-3 border-l border-slate-150">تاریخ سررسید</th>
+                          <th className="p-3 border-l border-slate-150">بابت / توضیحات</th>
+                          <th className="p-3">وضعیت پرداخت</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {printableCase.installments.map((ins, idx) => (
+                          <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                            <td className="p-3 border-l border-slate-100 text-slate-500 font-mono text-[10px] text-center">{toPersianDigits(idx + 1)}</td>
+                            <td className="p-3 border-l border-slate-100 text-blue-600 font-semibold">{toPersianDigits((ins.amount ?? 0).toLocaleString())} تومان</td>
+                            <td className="p-3 border-l border-slate-100 text-slate-600 font-mono">{toPersianDigits(ins.dueDate)}</td>
+                            <td className="p-3 border-l border-slate-100 text-slate-600 font-sans text-[11px]">{ins.note || "-"}</td>
+                            <td className="p-3">
+                              {ins.isPaid ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 border border-green-200 text-[10px] font-bold text-green-600">
+                                  پرداخت شده {ins.paidDate ? `(در ` + toPersianDigits(ins.paidDate) + `)` : ``}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-[10px] font-bold text-red-600">
+                                  معوق / در انتظار پرداخت
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Transactions Block with Image Attachments Display! */}
+                {printableCase.payments && printableCase.payments.length > 0 && (
+                  <div className="mt-4 overflow-hidden border border-slate-200 rounded-2xl">
+                    <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
+                      <h4 className="text-[11px] font-black text-slate-700">تاریخچه تراکنش‌ها</h4>
+                    </div>
+                    <table className="w-full text-right text-xs border-collapse" dir="rtl">
+                      <thead>
+                        <tr className="bg-slate-50/50 font-bold text-slate-600 border-b border-slate-200">
+                          <th className="p-3 border-l border-slate-150 text-center w-12">ردیف</th>
+                          <th className="p-3 border-l border-slate-150">بابت / شرح</th>
+                          <th className="p-3 border-l border-slate-150">مبلغ دریافتی</th>
+                          <th className="p-3 border-l border-slate-150">نوع پرداخت</th>
+                          <th className="p-3 border-l border-slate-150">تاریخ پرداخت</th>
+                          <th className="p-3">تصویر رسید پرداختی</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {printableCase.payments.map((p, idx) => (
+                          <tr key={p.id || idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                            <td className="p-3 border-l border-slate-100 text-slate-500 font-mono text-[10px] text-center">{toPersianDigits(idx + 1)}</td>
+                            <td className="p-3 border-l border-slate-100 text-slate-700 font-bold">{p.title}</td>
+                            <td className="p-3 border-l border-slate-100 text-green-600 font-bold">{toPersianDigits((p.amount ?? 0).toLocaleString())} تومان</td>
+                            <td className="p-3 border-l border-slate-100 text-slate-600">{p.type}</td>
+                            <td className="p-3 border-l border-slate-100 font-mono text-slate-600">{toPersianDigits(p.date)}</td>
+                            <td className="p-3">
+                              {p.receiptImage ? (
+                                <div className="flex items-center gap-2">
+                                  <img 
+                                    src={p.receiptImage} 
+                                    alt="رسید" 
+                                    onClick={() => setSelectedReceiptImage(p.receiptImage || null)}
+                                    className="w-10 h-10 object-cover rounded-lg border border-slate-200 cursor-zoom-in hover:scale-105 transition-all shadow-sm" 
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <span className="text-[10px] text-emerald-600 font-bold cursor-zoom-in">دیدن رسید</span>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 font-bold">فاقد تصویر رسید</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : previewSubPage === 4 ? (
+              /* Sub-page 4: Associated Persons */
+              <div className="space-y-4 animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-[10px] font-black">۴</span>
+                    افراد مرتبط با پرونده
+                  </h3>
+                  <button 
+                    onClick={() => setPreviewSubPage(null)} 
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    بازگشت به منو
+                  </button>
+                </div>
+
+                {printableCase.associatedPersons && printableCase.associatedPersons.length > 0 ? (
+                  <table className="w-full border-collapse border border-slate-200 text-xs text-right rounded-2xl overflow-hidden" dir="rtl">
+                    <thead>
+                      <tr className="bg-slate-100 font-bold text-slate-700">
+                        <th className="border border-slate-200 p-3 text-right">نام و نام خانوادگی</th>
+                        <th className="border border-slate-200 p-3 text-right">شماره تماس (تلفن همراه)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {printableCase.associatedPersons.map((person, i) => (
+                        <tr key={i} className="hover:bg-slate-50/50 transition">
+                          <td className="border border-slate-200 p-3 text-blue-600 font-semibold">{person.name || "-"}</td>
+                          <td className="border border-slate-200 p-3 font-mono text-blue-600 font-semibold">{person.phone ? toPersianDigits(person.phone) : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="py-8 text-center text-slate-400 font-bold border border-slate-150 rounded-2xl bg-slate-50/50 border-dashed">
+                    هیچ فرد مرتبطی برای این پرونده ثبت نشده است.
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Sub-page 5: Case Description */
+              <div className="space-y-4 animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-teal-50 text-teal-600 flex items-center justify-center text-[10px] font-black">۵</span>
+                    شرح خلاصه و مبانی وضعیت پرونده
+                  </h3>
+                  <button 
+                    onClick={() => setPreviewSubPage(null)} 
+                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    بازگشت به منو
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 p-6 rounded-2xl text-xs bg-slate-50/30 text-blue-600 font-semibold whitespace-pre-line leading-relaxed">
+                  {toPersianDigits(printableCase.description)}
+                </div>
+              </div>
+            )}
+
+            {/* Bottom Global Actions row */}
             <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 no-print" dir="rtl">
-              <span className="text-xs text-slate-500 font-bold">پایان پیش‌نمایش اطلاعات پرونده فوق</span>
+              <span className="text-xs text-slate-500 font-bold">
+                {previewSubPage !== null ? `بخش مشاهده جزئیات پرونده فعال است` : `پیش‌نمایش جزئیات پرونده`}
+              </span>
               <div className="flex gap-3 w-full sm:w-auto">
                 <button
                   type="button"
@@ -2414,20 +3192,278 @@ export default function CaseManager({
                   <Printer className="w-4 h-4 shrink-0" />
                   چاپ و ذخیره سنَد پرونده
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setPrintableCase(null)}
-                  className="flex-1 sm:flex-initial px-6 py-3 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer select-none touch-manipulation text-center"
-                >
-                  بازگشت
-                </button>
+                {previewSubPage !== null ? (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewSubPage(null)}
+                    className="flex-1 sm:flex-initial px-6 py-3 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-700 rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer select-none touch-manipulation text-center"
+                  >
+                    بازگشت به منو
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPrintableCase(null)}
+                    className="flex-1 sm:flex-initial px-6 py-3 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer select-none touch-manipulation text-center"
+                  >
+                    بستن پنجره
+                  </button>
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal 3-C: Printable Client View */}
+      {/* Modal 3-C: Specialized Horizontal Case Finance Viewer */}
+      {caseFinanceViewCase && (
+        <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-50 animate-fadeIn backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full p-8 font-sans text-right" dir="rtl">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-100">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-extrabold text-slate-800">
+                    تراز و جزئیات مالی پرونده: <span className="text-blue-600">{toPersianDigits(caseFinanceViewCase.title)}</span>
+                  </h2>
+                  <p className="text-[10px] text-slate-400 mt-1">مشاهده جریان و تراکنش‌های مالی به صورت کادرهای افقی مجزا</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCaseFinanceViewCase(null)}
+                  className="w-8 h-8 rounded-full border border-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center hover:bg-slate-50 cursor-pointer text-xs font-black shrink-0 active:scale-90 transition-transform duration-100"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="space-y-8 text-right" dir="rtl">
+              
+              {/* کادر تنظیمات چاپ بخش مالی */}
+              <div className="bg-slate-50 border border-slate-200 px-4 py-3 rounded-2xl flex items-center justify-between gap-4 animate-fadeIn max-w-md" dir="rtl">
+                <span className="text-xs font-bold text-slate-700">آیا این موارد چاپ شود؟</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIncludeFinancialInPrint(true)}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      includeFinancialInPrint
+                        ? "bg-amber-500 text-white shadow-sm"
+                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    بله
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIncludeFinancialInPrint(false)}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      !includeFinancialInPrint
+                        ? "bg-slate-300 text-slate-800 shadow-sm"
+                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    خیر
+                  </button>
+                </div>
+              </div>
+
+              {/* بخش اول: اقساط حق‌الوکاله */}
+              <div className="space-y-3" dir="rtl">
+                <h3 className="text-xs font-bold text-slate-700 border-r-4 border-amber-500 pr-2">الف) اقساط تعیین‌شده حق‌الوکاله</h3>
+                
+                {caseFinanceViewCase.installments && caseFinanceViewCase.installments.length > 0 ? (
+                  <div className="flex flex-row gap-4 overflow-x-auto pb-4 pt-1 snap-x scrollbar-thin scrollbar-thumb-slate-200 w-full justify-start items-stretch text-right" dir="rtl">
+                    {caseFinanceViewCase.installments.map((ins, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`min-w-[240px] max-w-[280px] p-4 rounded-2xl border snap-start flex-shrink-0 flex flex-col justify-between shadow-sm transition-all hover:-translate-y-0.5 duration-150 text-right ${
+                          ins.isPaid 
+                            ? 'bg-emerald-50/20 border-emerald-200' 
+                            : 'bg-amber-50/15 border-amber-100'
+                        }`}
+                        dir="rtl"
+                      >
+                        <div className="flex justify-between items-center mb-2" dir="rtl">
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                            ins.isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            قسط {toPersianDigits(idx + 1)}
+                          </span>
+                          <span className="text-[9px] font-mono font-bold text-slate-400">
+                            {ins.isPaid ? "🟢 پرداخت‌شده" : "🔴 معوق / جاری"}
+                          </span>
+                        </div>
+                        
+                        <div className="space-y-1.5 mt-2 text-right" dir="rtl">
+                          <p className="text-xs text-slate-800 text-right">
+                            <span className="font-bold text-slate-500 text-[10px]">مبلغ:</span>{" "}
+                            <span className="text-blue-600 font-black font-mono">{toPersianDigits((ins.amount ?? 0).toLocaleString())}</span>{" "}
+                            <span className="text-[10px] text-slate-500">تومان</span>
+                          </p>
+                          <p className="text-[10px] text-slate-500 text-right">
+                            <span className="font-bold text-slate-500 text-[10px]">تاریخ سررسید:</span>{" "}
+                            <span className="font-mono text-slate-700 font-bold">{toPersianDigits(ins.dueDate || "-")}</span>
+                          </p>
+                          {ins.paidDate && (
+                            <p className="text-[10px] text-emerald-600 text-right">
+                              <span className="font-bold text-emerald-600 text-[10px]">واریز در:</span>{" "}
+                              <span className="font-mono font-bold">{toPersianDigits(ins.paidDate)}</span>
+                            </p>
+                          )}
+                          {ins.note && (
+                            <p className="text-[10px] text-slate-400 italic truncate text-right" title={ins.note}>
+                              <span className="font-bold text-slate-400 text-[10px]">بابت:</span> {ins.note}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-slate-400 text-xs font-bold bg-slate-50/50 rounded-2xl border border-slate-100 border-dashed" dir="rtl">
+                    هیچ قسط‌بندی برای این پرونده تعریف نشده است.
+                  </div>
+                )}
+              </div>
+
+              {/* ریز دریافت‌ها و واریزها */}
+              <div className="space-y-3" dir="rtl">
+                <h3 className="text-xs font-bold text-slate-700 border-r-4 border-amber-500 pr-2">ب) تاریخچه تراکنش‌ها و دریافتی‌ها</h3>
+                
+                {(() => {
+                  const combinedTransactions = [
+                    ...(caseFinanceViewCase.payments || []).map((p, pIdx) => ({
+                      key: `pay-${pIdx}-${p.id || pIdx}`,
+                      title: p.title || "تراکنش مالی",
+                      amount: p.amount ?? 0,
+                      date: p.date,
+                      type: p.type || "کارت به کارت",
+                      cardNumber: p.cardNumber,
+                      isPaidInstallment: false,
+                      receiptImage: p.receiptImage
+                    })),
+                    ...(caseFinanceViewCase.installments || [])
+                      .filter(ins => ins.isPaid)
+                      .map((ins, insIdx) => {
+                        let parsedAmount = 0;
+                        if (ins.amount) {
+                          if (typeof ins.amount === "number") {
+                            parsedAmount = ins.amount;
+                          } else {
+                            parsedAmount = parseFloat(ins.amount) || 0;
+                          }
+                        }
+                        return {
+                          key: `ins-${insIdx}-${ins.id || insIdx}`,
+                          title: ins.note ? `قسط: ${ins.note}` : `قسط شماره ${toPersianDigits(insIdx + 1)}`,
+                          amount: parsedAmount,
+                          date: ins.paidDate || ins.dueDate,
+                          type: "وصول اقساط",
+                          cardNumber: "",
+                          isPaidInstallment: true,
+                          receiptImage: undefined
+                        };
+                      })
+                  ];
+
+                  return combinedTransactions.length > 0 ? (
+                    <div className="flex flex-row gap-4 overflow-x-auto pb-4 pt-1 snap-x scrollbar-thin scrollbar-thumb-slate-200 w-full justify-start items-stretch text-right" dir="rtl">
+                      {combinedTransactions.map((p) => (
+                        <div 
+                          key={p.key} 
+                          className="min-w-[240px] max-w-[280px] p-4 rounded-2xl border border-slate-200 bg-slate-50/30 snap-start flex-shrink-0 flex flex-col justify-between shadow-sm transition-all hover:-translate-y-0.5 duration-150 hover:border-slate-300 text-right"
+                          dir="rtl"
+                        >
+                          <div className="flex justify-between items-center mb-2" dir="rtl">
+                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${p.isPaidInstallment ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
+                              {p.title}
+                            </span>
+                            <span className="text-[9px] font-black text-emerald-600">
+                              {p.isPaidInstallment ? "وصول اقساطی" : "واریز موفق"}
+                            </span>
+                          </div>
+                          
+                          <div className="space-y-1.5 mt-2 text-right" dir="rtl">
+                            <p className="text-xs text-emerald-700 text-right">
+                              <span className="font-bold text-emerald-600 text-[10px]">مبلغ:</span>{" "}
+                              <span className="font-mono font-black">{toPersianDigits((p.amount ?? 0).toLocaleString())}</span>{" "}
+                              <span className="text-[10px] text-emerald-600">تومان</span>
+                            </p>
+                            <p className="text-[10px] text-slate-500 text-right">
+                              <span className="font-bold text-slate-500 text-[10px]">تاریخ تراکنش:</span>{" "}
+                              <span className="font-mono text-slate-700 font-bold">{toPersianDigits(p.date || "-")}</span>
+                            </p>
+                            <p className="text-[10px] text-slate-500 text-right">
+                              <span className="font-bold text-slate-500 text-[10px]">روش پرداخت:</span>{" "}
+                              <span className="text-slate-700 font-bold">{p.type}</span>
+                            </p>
+                            {p.cardNumber && (
+                              <p className="text-[10px] text-slate-400 text-right">
+                                <span className="font-bold text-slate-400 text-[10px]">کارت:</span>{" "}
+                                <span className="font-mono font-bold text-slate-600">{toPersianDigits(p.cardNumber)}</span>
+                              </p>
+                            )}
+                            {p.receiptImage && (
+                              <div className="mt-2.5 pt-2 border-t border-slate-200/50 flex flex-col items-start gap-1">
+                                <span className="text-[9px] text-slate-400 font-bold">رسید پرداخت:</span>
+                                <img 
+                                  src={p.receiptImage} 
+                                  alt="رسید" 
+                                  onClick={() => setSelectedReceiptImage(p.receiptImage || null)}
+                                  className="w-12 h-12 object-cover rounded-lg border border-slate-200 cursor-zoom-in hover:opacity-85 transition-all duration-150"
+                                  referrerPolicy="no-referrer"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center text-slate-400 text-xs font-bold bg-slate-50/50 rounded-2xl border border-slate-100 border-dashed" dir="rtl">
+                      تاکنون هیچ سند واریزی یا قسط پرداخت‌شده‌ای برای این پرونده ثبت نشده است.
+                    </div>
+                  );
+                })()}
+              </div>
+
+            </div>
+
+            {/* Footer buttons */}
+            <div className="mt-8 pt-4 border-t border-slate-100 flex justify-between items-center">
+              <span className="text-xs text-slate-400 font-bold">پایان ترازنامه مالی تخصصی پرونده</span>
+              <div className="flex gap-2.5">
+                {includeFinancialInPrint && (
+                  <button
+                    onClick={() => handlePrint(caseFinanceViewCase, true)}
+                    className="px-5 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-black rounded-xl transition cursor-pointer select-none flex items-center gap-1.5 shadow-md active:shadow-inner"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    چاپ کامل سند پرونده (با بخش مالی)
+                  </button>
+                )}
+                <button
+                  onClick={() => setCaseFinanceViewCase(null)}
+                  className="px-6 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-bold rounded-xl transition cursor-pointer select-none"
+                >
+                  بستن ترازنامه مالی
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3-D: Printable Client View */}
       {printableClient && (
         <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-50 animate-fadeIn backdrop-blur-sm overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-6 font-sans text-right" dir="rtl">
@@ -2519,7 +3555,8 @@ export default function CaseManager({
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
               {/* Files & Attachments explorer (12 cols) */}
               <div className="md:col-span-12 space-y-6">
-                <div>
+                <div className="space-y-4">
+
                   {/* Drag drop zone container */}
                   <div
                     onDragEnter={handleDrag}
@@ -2549,14 +3586,44 @@ export default function CaseManager({
                 </div>
 
                 {/* Attachments List */}
-                <div className="space-y-2">
-                  <span className="text-[10px] text-slate-400 font-bold block">مجموع پرونده‌های پیوست ({toPersianDigits(activeCaseDocs.length)}):</span>
+                <div className="space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] text-slate-400 font-bold block">مجموع پرونده‌های پیوست ({toPersianDigits(activeCaseDocs.length)}):</span>
+                    
+                    {activeCaseDocs.length > 0 && (
+                      <div className="flex items-center gap-2 flex-1 md:justify-end">
+                        <div className="relative w-full max-w-xs">
+                          <input 
+                            type="text" 
+                            placeholder="جستجو در اسناد..." 
+                            value={docSearchQuery}
+                            onChange={(e) => setDocSearchQuery(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 pr-8 text-xs font-bold text-slate-700 outline-none focus:border-amber-500"
+                          />
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2" />
+                        </div>
+                        <select
+                          value={docTagFilter}
+                          onChange={(e) => setDocTagFilter(e.target.value as any)}
+                          className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 outline-none w-28 shrink-0"
+                        >
+                          <option value="all">همه برچسب‌ها</option>
+                          <option value="عادی">عادی</option>
+                          <option value="محرمانه">محرمانه</option>
+                          <option value="فوری">فوری</option>
+                          <option value="آرشیو">آرشیو</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="space-y-2 max-h-[220px] overflow-y-auto">
                     {activeCaseDocs.length === 0 ? (
                       <p className="text-[10px] text-slate-400 text-center py-6 bg-slate-50/10 border border-dotted border-slate-100 rounded-xl">سندی الصاق نشده است.</p>
+                    ) : filteredCaseDocs.length === 0 ? (
+                      <p className="text-[10px] text-slate-400 text-center py-6 bg-slate-50/10 border border-dotted border-slate-100 rounded-xl">سندی با این مشخصات یافت نشد.</p>
                     ) : (
-                      activeCaseDocs.map(doc => (
+                      filteredCaseDocs.map(doc => (
                         <div key={doc.id} className="p-2 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between group hover:border-amber-200">
                           <div className="flex items-center gap-2 min-w-0">
                             {doc.type === "image" && doc.dataUrl ? (
@@ -2572,35 +3639,91 @@ export default function CaseManager({
                             )}
                             <div className="min-w-0 text-[10px] flex-1">
                               {editingDocId === doc.id ? (
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="text"
-                                    value={editDocName}
-                                    onChange={(e) => setEditDocName(e.target.value)}
-                                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold outline-none focus:ring-1 focus:ring-amber-500"
-                                    autoFocus
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') handleSaveEditedDocName(doc.id);
-                                      if (e.key === 'Escape') setEditingDocId(null);
-                                    }}
-                                  />
-                                  <button
-                                    onClick={() => handleSaveEditedDocName(doc.id)}
-                                    className="p-1 text-green-600 hover:bg-green-50 rounded"
-                                  >
-                                    ✓
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingDocId(null)}
-                                    className="p-1 text-red-600 hover:bg-red-50 rounded"
-                                  >
-                                    ✕
-                                  </button>
+                                <div className="space-y-2 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                                  <div className="space-y-1">
+                                    <label className="text-[8px] font-black text-slate-400">نام سند:</label>
+                                    <input
+                                      type="text"
+                                      value={editDocName}
+                                      onChange={(e) => setEditDocName(e.target.value)}
+                                      className="w-full px-2 py-1 bg-slate-50 border border-slate-100 rounded text-[10px] font-bold outline-none focus:ring-1 focus:ring-amber-500"
+                                      autoFocus
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div className="space-y-1">
+                                      <label className="text-[8px] font-black text-slate-400">برچسب:</label>
+                                      <select
+                                        value={editDocTag}
+                                        onChange={(e) => setEditDocTag(e.target.value as any)}
+                                        className="w-full px-2 py-1 bg-slate-50 border border-slate-100 rounded text-[10px] font-bold outline-none"
+                                      >
+                                        <option value="عادی">عادی</option>
+                                        <option value="محرمانه">محرمانه</option>
+                                        <option value="فوری">فوری</option>
+                                        <option value="آرشیو">آرشیو</option>
+                                      </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="text-[8px] font-black text-slate-400">ماده استنادی:</label>
+                                      <input
+                                        type="text"
+                                        value={editDocLawArticle}
+                                        onChange={(e) => setEditDocLawArticle(e.target.value)}
+                                        className="w-full px-2 py-1 bg-slate-50 border border-slate-100 rounded text-[10px] font-bold outline-none focus:ring-1 focus:ring-amber-500"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[8px] font-black text-slate-400">متن ماده قانونی:</label>
+                                    <textarea
+                                      value={editDocLawText}
+                                      onChange={(e) => setEditDocLawText(e.target.value)}
+                                      rows={1}
+                                      className="w-full px-2 py-1 bg-slate-50 border border-slate-100 rounded text-[9px] font-medium outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                                    />
+                                  </div>
+                                  <div className="flex justify-end gap-1.5 pt-1">
+                                    <button
+                                      onClick={() => handleSaveEditedDoc(doc.id)}
+                                      className="px-3 py-1 bg-green-600 text-white text-[9px] font-black rounded-lg hover:bg-green-700 shadow-sm"
+                                    >
+                                      ذخیره تغییرات
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingDocId(null)}
+                                      className="px-3 py-1 bg-slate-100 text-slate-600 text-[9px] font-black rounded-lg hover:bg-slate-200"
+                                    >
+                                      انصراف
+                                    </button>
+                                  </div>
                                 </div>
                               ) : (
                                 <>
-                                  <p className="font-bold text-slate-800 truncate" title={doc.name}>{doc.name}</p>
-                                  <p className="text-[8px] text-slate-400 mt-0.5">{doc.size} | {toPersianDigits(doc.uploadedAt)}</p>
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <p className="font-bold text-slate-800 truncate" title={doc.name}>{doc.name}</p>
+                                    {doc.tag && doc.tag !== "عادی" && (
+                                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-black shrink-0 ${
+                                        doc.tag === "محرمانه" ? "bg-red-50 text-red-600 border border-red-100" :
+                                        doc.tag === "فوری" ? "bg-orange-50 text-orange-600 border border-orange-100" :
+                                        doc.tag === "آرشیو" ? "bg-slate-100 text-slate-500 border border-slate-200" :
+                                        "bg-blue-50 text-blue-600 border border-blue-100"
+                                      }`}>
+                                        {doc.tag}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {doc.lawArticle && (
+                                    <div className="text-[9px] text-amber-700 font-black mb-0.5 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 inline-block">
+                                      استناد: {doc.lawArticle}
+                                    </div>
+                                  )}
+                                  {doc.lawText && (
+                                    <p className="text-[8px] text-slate-500 line-clamp-1 italic mb-0.5" title={doc.lawText}>
+                                      {doc.lawText}
+                                    </p>
+                                  )}
+                                  <p className="text-[8px] text-slate-400">{doc.size} | {toPersianDigits(doc.uploadedAt)}</p>
                                 </>
                               )}
                             </div>
@@ -2634,9 +3757,12 @@ export default function CaseManager({
                                 onClick={() => {
                                   setEditingDocId(doc.id);
                                   setEditDocName(doc.name);
+                                  setEditDocTag(doc.tag || "عادی");
+                                  setEditDocLawArticle(doc.lawArticle || "");
+                                  setEditDocLawText(doc.lawText || "");
                                 }}
                                 className="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 cursor-pointer"
-                                title="ویرایش نام سند"
+                                title="ویرایش مشخصات سند"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
@@ -2682,8 +3808,8 @@ export default function CaseManager({
 
       {/* Interactive Document View / Preview Overlay */}
       {previewDoc && (
-        <div className="fixed inset-0 bg-slate-950/85 z-[60] flex flex-col items-center justify-center p-4 backdrop-blur-md">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">
+        <div className="fixed inset-0 bg-slate-950/90 z-[60] flex flex-col items-center justify-center p-2 sm:p-4 backdrop-blur-md">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl w-full max-w-4xl h-full sm:h-auto sm:max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
             {/* Header */}
             <div className="p-4 bg-slate-950 border-b border-slate-850 flex items-center justify-between text-white">
               <div className="flex items-center gap-2">
@@ -2703,19 +3829,19 @@ export default function CaseManager({
             </div>
 
             {/* Document Body View Area */}
-            <div className="p-6 flex-1 flex items-center justify-center min-h-[300px] max-h-[500px] overflow-auto bg-slate-950/20">
+            <div className="p-4 sm:p-6 flex-grow flex items-center justify-center min-h-[300px] h-[calc(100vh-160px)] sm:h-[550px] md:h-[650px] overflow-auto bg-slate-950/20">
               {(previewDoc.type === "image" || previewDoc.dataUrl?.startsWith("data:image/")) && previewDoc.dataUrl ? (
                 <img
                   src={previewDoc.dataUrl}
                   alt={previewDoc.name}
-                  className="max-w-full max-h-96 rounded-2xl border border-slate-800 object-contain shadow-lg"
+                  className="max-w-full max-h-[80vh] sm:max-h-[500px] md:max-h-[600px] rounded-xl border border-slate-800 object-contain shadow-lg"
                   referrerPolicy="no-referrer"
                 />
-              ) : (previewDoc.type === "pdf" || previewDoc.dataUrl?.startsWith("data:application/pdf") || previewDoc.dataUrl?.startsWith("blob:") || previewDoc.name?.toLowerCase().endsWith(".pdf")) ? (
+              ) : ((previewDoc.type === "pdf" || previewDoc.dataUrl?.startsWith("data:application/pdf") || previewDoc.dataUrl?.startsWith("blob:") || previewDoc.name?.toLowerCase().endsWith(".pdf")) && previewDoc.dataUrl) ? (
                 <object
                   data={previewDoc.dataUrl}
                   type="application/pdf"
-                  className="w-full min-h-[400px] h-full rounded-2xl border border-slate-800 shadow bg-white"
+                  className="w-full h-full min-h-[400px] rounded-xl border border-slate-800 shadow bg-white"
                 >
                   <div className="flex flex-col items-center justify-center p-8 text-center space-y-4">
                     <div className="w-16 h-16 rounded-2xl bg-slate-800/50 flex items-center justify-center text-slate-300 mx-auto">
@@ -2724,9 +3850,22 @@ export default function CaseManager({
                     <div>
                       <p className="text-slate-200 font-bold mb-2">مرورگر شما قادر به نمایش مستقیم PDF نیست</p>
                       <p className="text-[11px] text-slate-400 mb-4">لطفاً فایل را از طریق دکمه‌های زیر بارگیری یا باز کنید.</p>
-                      <a href={previewDoc.dataUrl} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition inline-block">
-                        باز کردن در صفحه جدید
-                      </a>
+                      <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+                        <button 
+                          type="button" 
+                          onClick={() => triggerOpenInNewTab(previewDoc)} 
+                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition inline-block cursor-pointer shadow-lg shadow-blue-500/20 active:scale-95 text-center w-full sm:w-auto"
+                        >
+                          باز کردن در صفحه جدید
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => triggerDirectDownload(previewDoc.dataUrl!, previewDoc.name)} 
+                          className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl transition inline-block cursor-pointer shadow-lg shadow-amber-500/20 active:scale-95 text-center w-full sm:w-auto"
+                        >
+                          دانلود مستقیم سند
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </object>
@@ -2779,13 +3918,13 @@ export default function CaseManager({
               <p className="text-[9px] text-slate-500">پورتال هوشمند وکالت - نمایش امن پیش‌نمایش اسناد</p>
               <div className="flex gap-2">
                 {previewDoc.dataUrl && (
-                  <a
-                    href={previewDoc.dataUrl}
-                    download={previewDoc.name}
-                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl transition flex items-center gap-1.5"
+                  <button
+                    type="button"
+                    onClick={() => triggerDirectDownload(previewDoc.dataUrl!, previewDoc.name)}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                   >
                     بارگیری و دانلود
-                  </a>
+                  </button>
                 )}
                 <button
                   type="button"
@@ -2991,6 +4130,40 @@ export default function CaseManager({
           </div>
         </div>
       )}
+
+      {/* Zoomed Receipt Image Modal */}
+      {selectedReceiptImage && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-[9999] animate-fadeIn backdrop-blur-md">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between text-white">
+              <span className="text-xs font-black">تصویر فیش / رسید پرداخت</span>
+              <button 
+                onClick={() => setSelectedReceiptImage(null)} 
+                className="text-slate-400 hover:text-white p-1 text-sm font-bold bg-slate-800 rounded-full w-6 h-6 flex items-center justify-center cursor-pointer transition-all"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 flex items-center justify-center bg-slate-950">
+              <img 
+                src={selectedReceiptImage} 
+                alt="رسید پرداخت" 
+                className="max-w-full max-h-[65vh] object-contain rounded-2xl border border-slate-800 shadow-lg" 
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            <div className="p-4 bg-slate-900 border-t border-slate-800 flex items-center justify-end">
+              <button 
+                onClick={() => setSelectedReceiptImage(null)} 
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all"
+              >
+                بستن رسید
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

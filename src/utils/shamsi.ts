@@ -162,6 +162,13 @@ export function getJalaliFirstWeekday(jy: number, jm: number): number {
   return (gDate.getDay() + 1) % 7;
 }
 
+export function getPersianDayName(jy: number, jm: number, jd: number): string {
+  const { gy, gm, gd } = jalaliToGregorian(jy, jm, jd);
+  const date = new Date(Date.UTC(gy, gm - 1, gd));
+  const weekdayIndex = (date.getUTCDay() + 1) % 7;
+  return JALALI_WEEKDAYS[weekdayIndex];
+}
+
 /**
  * Converts English digits to Persian digits.
  */
@@ -197,6 +204,158 @@ export function formatDateWithSlash(value: string): string {
     formatted = formatted.slice(0, 7) + "/" + formatted.slice(7, 9);
   }
   return toPersianDigits(formatted);
+}
+
+/**
+ * Adjusts a Jalali date if it falls on a Friday or official holiday,
+ * moving it to the next working day, based on Article 444 of the Civil Procedure Code.
+ */
+export function adjustDateForHolidays(targetJalaliStr: string, officialHolidays: string[] = []): { adjustedDate: string, explanation: string } {
+  let currentJalali = toEnglishDigits(targetJalaliStr);
+  let isHoliday = true;
+
+  // Standard fixed annual solar holidays in Iran (MM/DD format)
+  const defaultSolarHolidays = [
+    "01/01", "01/02", "01/03", "01/04", // نوروز
+    "01/12", // روز جمهوری اسلامی
+    "01/13", // روز طبیعت (سیزده بدر)
+    "03/14", // رحلت امام خمینی
+    "03/15", // قیام ۱۵ خرداد
+    "11/22", // پیروزی انقلاب اسلامی
+    "12/29", // ملی شدن صنعت نفت
+    "12/30"  // روز آخر اسفند در سال‌های کبیسه
+  ];
+
+  // Pre-calculated solar dates for lunar religious holidays in Iran (YYYY/MM/DD format)
+  const religiousHolidays: { [year: number]: string[] } = {
+    1403: [
+      "1403/01/12", // شهادت حضرت علی
+      "1403/01/22", "1403/01/23", // عید فطر
+      "1403/02/15", // شهادت امام صادق
+      "1403/03/28", // عید قربان
+      "1403/04/05", // عید غدیر
+      "1403/04/25", "1403/04/26", // تاسوعا و عاشورا
+      "1403/06/04", // اربعین حسینی
+      "1403/06/12", // رحلت پیامبر و شهادت امام حسن
+      "1403/06/14", // شهادت امام رضا
+      "1403/06/22", // شهادت امام حسن عسکری
+      "1403/06/31", // میلاد پیامبر و امام صادق
+      "1403/09/15", // شهادت حضرت فاطمه
+      "1403/10/25", // ولادت امام علی
+      "1403/11/09", // مبعث رسول اکرم
+      "1403/11/27", // ولادت امام زمان (نیمه شعبان)
+    ],
+    1404: [
+      "1404/01/01", // شهادت حضرت علی (نوبت اول)
+      "1404/01/11", "1404/01/12", // عید فطر (نوبت اول)
+      "1404/02/03", // شهادت امام صادق
+      "1404/03/16", // عید قربان
+      "1404/03/24", // عید غدیر
+      "1404/04/14", "1404/04/15", // تاسوعا و عاشورا
+      "1404/05/24", // اربعین حسینی
+      "1404/06/01", // رحلت پیامبر و شهادت امام حسن
+      "1404/06/03", // شهادت امام رضا
+      "1404/06/11", // شهادت امام حسن عسکری
+      "1404/06/20", // میلاد پیامبر و امام صادق
+      "1404/09/04", // شهادت حضرت فاطمه
+      "1404/10/13", // ولادت امام علی
+      "1404/10/27", // مبعث رسول اکرم
+      "1404/11/15", // ولادت امام زمان (نیمه شعبان)
+      "1404/12/19", // شهادت حضرت علی (نوبت دوم)
+      "1404/12/29", // عید فطر (نوبت دوم)
+    ],
+    1405: [
+      "1405/01/01", // عید فطر (ادامه از سال قبل)
+      "1405/03/02", // شهادت امام صادق
+      "1405/03/06", // عید قربان
+      "1405/03/14", // عید غدیر
+      "1405/04/03", "1405/04/04", // تاسوعا و عاشورا
+      "1405/05/13", // اربعین حسینی
+      "1405/05/21", // رحلت پیامبر و شهادت امام حسن
+      "1405/05/23", // شهادت امام رضا
+      "1405/05/31", // شهادت امام حسن عسکری
+      "1405/06/09", // میلاد پیامبر و امام صادق
+      "1405/08/23", // شهادت حضرت فاطمه
+      "1405/10/02", // ولادت امام علی
+      "1405/10/16", // مبعث رسول اکرم
+      "1405/11/04", // ولادت امام زمان (نیمه شعبان)
+      "1405/12/09", // شهادت حضرت علی
+      "1405/12/19", "1405/12/20", // عید فطر
+    ],
+    1406: [
+      "1406/02/12", // شهادت امام صادق
+      "1406/02/26", // عید قربان
+      "1406/03/03", // عید غدیر
+      "1406/03/23", "1406/03/24", // تاسوعا و عاشورا
+      "1406/05/02", // اربعین حسینی
+      "1406/05/10", // رحلت پیامبر و شهادت امام حسن
+      "1406/05/12", // شهادت امام رضا
+      "1406/05/20", // شهادت امام حسن عسکری
+      "1406/05/29", // میلاد پیامبر و امام صادق
+      "1406/08/12", // شهادت حضرت فاطمه
+      "1406/09/21", // ولادت امام علی
+      "1406/10/06", // مبعث رسول اکرم
+      "1406/10/24", // ولادت امام زمان (نیمه شعبان)
+      "1406/11/29", // شهادت حضرت علی
+      "1406/12/09", "1406/12/10", // عید فطر
+    ],
+    1407: [
+      "1407/01/31", // شهادت امام صادق
+      "1407/02/15", // عید قربان
+      "1407/02/23", // عید غدیر
+      "1407/03/12", "1407/03/13", // تاسوعا و عاشورا
+      "1407/04/22", // اربعین حسینی
+      "1407/04/30", // رحلت پیامبر و شهادت امام حسن
+      "1407/05/02", // شهادت امام رضا
+      "1407/05/10", // شهادت امام حسن عسکری
+      "1407/05/19", // میلاد پیامبر و امام صادق
+      "1407/08/01", // شهادت حضرت فاطمه
+      "1407/09/10", // ولادت امام علی
+      "1407/09/24", // مبعث رسول اکرم
+      "1407/10/12", // ولادت امام زمان (نیمه شعبان)
+      "1407/11/17", // شهادت حضرت علی
+      "1407/11/27", "1407/11/28", // عید فطر
+    ]
+  };
+
+  while (isHoliday) {
+    const parts = currentJalali.split("/").map(Number);
+    if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) {
+      break;
+    }
+    const { gy, gm, gd } = jalaliToGregorian(parts[0], parts[1], parts[2]);
+    const date = new Date(gy, gm - 1, gd);
+
+    // In JavaScript Date.getDay(), 5 is Friday
+    const isFriday = date.getDay() === 5;
+    const formattedMonthDay = `${parts[1].toString().padStart(2, "0")}/${parts[2].toString().padStart(2, "0")}`;
+
+    const normalizedCurrentJalali = `${parts[0]}/${parts[1].toString().padStart(2, "0")}/${parts[2].toString().padStart(2, "0")}`;
+
+    const yearList = religiousHolidays[parts[0]] || [];
+    const isReligiousHoliday = yearList.includes(normalizedCurrentJalali);
+
+    const isOfficialHoliday = defaultSolarHolidays.includes(formattedMonthDay) || isReligiousHoliday || officialHolidays.includes(currentJalali);
+
+    if (isFriday || isOfficialHoliday) {
+      // Move to the next day
+      const nextDate = addDaysToJalali(parts[0], parts[1], parts[2], 1);
+      currentJalali = formatJalaliDate(nextDate.jy, nextDate.jm, nextDate.jd);
+    } else {
+      isHoliday = false;
+    }
+  }
+
+  if (currentJalali !== toEnglishDigits(targetJalaliStr)) {
+    return {
+      adjustedDate: toPersianDigits(currentJalali),
+      explanation: "بر اساس ماده ۴۴۴ قانون آیین دادرسی مدنی: «چنانچه روز آخر موعد، مصادف با روز تعطیل عمومی باشد، آن روز به حساب نمی‌آید و نخستین روز پس از تعطیل، روز آخر موعد خواهد بود.»"
+    };
+  }
+  return {
+    adjustedDate: targetJalaliStr,
+    explanation: ""
+  };
 }
 
 /**

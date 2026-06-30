@@ -44,6 +44,7 @@ export default function CalendarPanel({
   const [newAlarm, setNewAlarm] = useState(true);
   const [newDesc, setNewDesc] = useState("");
   const [newCaseId, setNewCaseId] = useState("");
+  const [showAlarmTestModal, setShowAlarmTestModal] = useState(false);
 
   // Additional multi-day and SMS alarm configs
   const [alarm1Day, setAlarm1Day] = useState(true);
@@ -146,6 +147,7 @@ export default function CalendarPanel({
     if (editingEvent) {
       const updatedEvent: LegalEvent = {
         ...editingEvent,
+        isArchived: false,
         caseId: newCaseId || undefined,
         caseTitle: matchedCase?.title || undefined,
         clientName: matchedCase?.clientName || undefined,
@@ -210,22 +212,37 @@ export default function CalendarPanel({
               </div>
             </div>
             
-            <div className="flex items-center gap-3 bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <div className="flex flex-col sm:flex-row items-center gap-3">
               <button
-                onClick={handleNextMonth} // Because RTL right means forward, let's map correctly
-                className="p-1.5 hover:bg-white rounded-lg hover:shadow-sm text-slate-600 transition cursor-pointer"
+                onClick={() => {
+                  import('../utils/icsHelper').then(({ downloadICSFile }) => {
+                    downloadICSFile(events, 'alarms.ics');
+                  });
+                }}
+                className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-xs font-black rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-emerald-200 shadow-sm whitespace-nowrap"
+                title="دانلود تقویم (ICS) جهت درون‌ریزی در تقویم گوشی"
               >
-                <ChevronRight className="w-4 h-4" />
+                <Calendar className="w-3.5 h-3.5" />
+                ثبت همه در تقویم
               </button>
-              <div className="text-xs font-bold text-slate-800 w-28 text-center select-none">
-                {JALALI_MONTH_NAMES[month - 1]} {toPersianDigits(year)}
+              
+              <div className="flex items-center gap-3 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  onClick={handleNextMonth}
+                  className="p-1.5 hover:bg-white rounded-lg hover:shadow-sm text-slate-600 transition cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <div className="text-xs font-bold text-slate-800 w-28 text-center select-none">
+                  {JALALI_MONTH_NAMES[month - 1]} {toPersianDigits(year)}
+                </div>
+                <button
+                  onClick={handlePrevMonth}
+                  className="p-1.5 hover:bg-white rounded-lg hover:shadow-sm text-slate-600 transition cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={handlePrevMonth}
-                className="p-1.5 hover:bg-white rounded-lg hover:shadow-sm text-slate-600 transition cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
             </div>
           </div>
 
@@ -411,10 +428,21 @@ export default function CalendarPanel({
             </div>
           </div>
 
-          {/* Quick Notice */}
-          <div className="border-t border-slate-800 pt-4 mt-4 flex items-center gap-2 text-[10px] text-slate-400 bg-slate-950/20 p-2.5 rounded-xl">
-            <Bell className="w-4 h-4 text-amber-500 shrink-0" />
-            <span>آلارم دادخواست‌ها و جلسات دادرسی ۲۴ ساعت قبل و در صبح روز ابلاغی به صورت صوتی طنین‌انداز می‌شود.</span>
+          {/* Quick Notice & Testing */}
+          <div className="border-t border-slate-800 pt-4 mt-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-[10px] text-slate-400 bg-slate-950/20 p-2.5 rounded-xl border border-slate-800/50">
+              <Bell className="w-4 h-4 text-amber-500 shrink-0" />
+              <span className="leading-relaxed">آلارم دادخواست‌ها و جلسات دادرسی ۲۴ ساعت قبل و در صبح روز ابلاغی به صورت صوتی طنین‌انداز می‌شود.</span>
+            </div>
+            
+            <button
+              onClick={() => setShowAlarmTestModal(true)}
+              className="w-full py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition cursor-pointer border border-slate-700 hover:border-slate-600 shadow-sm"
+              title="تست در لحظه آلارم جهت اطمینان از عملکرد سیستم"
+            >
+              <Bell className="w-3.5 h-3.5 text-amber-400" />
+              تنظیمات و تست هشدارها
+            </button>
           </div>
         </div>
       </div>
@@ -616,6 +644,88 @@ export default function CalendarPanel({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Alarm Test & Settings Modal */}
+      {showAlarmTestModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200"
+             onClick={(e) => { if(e.target === e.currentTarget) setShowAlarmTestModal(false); }}>
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h2 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                <Bell className="w-5 h-5 text-amber-500" />
+                تست و تنظیمات هشدار
+              </h2>
+              <button onClick={() => setShowAlarmTestModal(false)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition">
+                &times;
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-blue-800 text-xs leading-relaxed font-medium">
+                شما می‌توانید با استفاده از گزینه‌های زیر اطمینان حاصل کنید که دستگاه شما اجازه پخش صدا و نمایش اعلان‌ها را می‌دهد. در صورتی که اعلان کار نکرد، مجوزهای مرورگر خود را بررسی کنید.
+              </div>
+
+              <button
+                onClick={() => {
+                  import('../utils/alarmService').then(({ AlarmService }) => {
+                    AlarmService.playBadSabaAlarm();
+                  });
+                }}
+                className="w-full flex items-center justify-between bg-white border border-slate-200 hover:border-amber-400 p-3 rounded-xl transition cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <Bell className="w-4 h-4" />
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-bold text-slate-800">تست هشدار صوتی</div>
+                    <div className="text-[10px] text-slate-500">پخش صدای هشدار</div>
+                  </div>
+                </div>
+                <div className="px-3 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold">آزمایش</div>
+              </button>
+
+              <button
+                onClick={() => {
+                  import('../utils/alarmService').then(({ AlarmService }) => {
+                    AlarmService.requestPermission().then((granted) => {
+                      if(granted) {
+                        AlarmService.showNotification(
+                          "تست اعلان سیستم",
+                          "این یک پیام تستی از سامانه مدیریت وکالت است."
+                        );
+                      } else {
+                        alert("مجوز نمایش اعلان در مرورگر شما مسدود شده است. لطفا از تنظیمات مرورگر آن را فعال کنید.");
+                      }
+                    });
+                  });
+                }}
+                className="w-full flex items-center justify-between bg-white border border-slate-200 hover:border-blue-400 p-3 rounded-xl transition cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Bell className="w-4 h-4" />
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-bold text-slate-800">تست اعلان (Notification)</div>
+                    <div className="text-[10px] text-slate-500">نمایش یک پیام روی صفحه</div>
+                  </div>
+                </div>
+                <div className="px-3 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold">آزمایش</div>
+              </button>
+            </div>
+            
+            <div className="p-4 border-t border-slate-100 bg-slate-50">
+              <button 
+                onClick={() => setShowAlarmTestModal(false)}
+                className="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition cursor-pointer"
+              >
+                بستن پنجره
+              </button>
+            </div>
           </div>
         </div>
       )}

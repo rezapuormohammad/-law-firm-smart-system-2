@@ -1,7 +1,9 @@
 {
   "name": "Legal Calculators System",
   "description": "Smart automation platform for modern law firms.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "microphone"
+  ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

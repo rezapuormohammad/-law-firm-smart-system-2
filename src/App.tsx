@@ -22,8 +22,10 @@ import BackupCenter from "./components/BackupCenter";
 import PastEventsArchive from "./components/PastEventsArchive";
 
 import Terminology from "./components/Terminology";
-import LawsExplorer from "./components/LawsExplorer";
+import LawsDatabase from "./components/LawsDatabase";
 import QuickNotes from "./components/QuickNotes";
+import StandaloneDocViewer from "./components/StandaloneDocViewer";
+import DeadlineResultPage from "./components/DeadlineResultPage";
 import {
   Briefcase,
   Users,
@@ -42,6 +44,7 @@ import {
   Coins,
   Share2,
   Lock,
+  Clock,
   CloudUpload,
   ArrowRight,
   Bell,
@@ -50,25 +53,40 @@ import {
   Archive,
   Search,
   Printer, // <-- Added Import
-  FileText
+  FileText,
+  Globe,
+  Copy
 } from "lucide-react";
 
 import { auth, onAuthStateChanged } from "./firebase/config";
-import { syncFullStateToCloud } from "./firebase/db";
+import { syncFullStateToCloud, restoreFromCloud } from "./firebase/db";
 type User = { uid: string; email?: string | null };
 
 export default function App() {
+  // Theme state: "amber" (classic), "turquoise", "crimson", "emerald", "royal", "dark"
+  type AppTheme = "amber" | "turquoise" | "crimson" | "emerald" | "royal" | "dark";
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    const saved = safeStorage.getItem("r_app_theme") as AppTheme;
+    return ["amber", "turquoise", "crimson", "emerald", "royal", "dark"].includes(saved) ? saved : "amber";
+  });
+
   // Navigation active tab
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "cases" | "calculators" | "calendar" | "chat" | "adliran" | "finance" | "backup" | "backup-center" | "add-reminder" | "event-archive" | "terminology" | "laws" | "quick-notes"
+    "dashboard" | "cases" | "calculators" | "calendar" | "chat" | "adliran" | "finance" | "backup" | "backup-center" | "add-reminder" | "event-archive" | "terminology" | "laws" | "laws-db" | "quick-notes" | "ara-vahdat" | "nazariat" | "deadline-result"
   >("dashboard");
   const [activeCaseSubTab, setActiveCaseSubTab] = useState<"cases" | "closedCases" | "clients">("cases");
+  const [targetCaseId, setTargetCaseId] = useState<string | undefined>(undefined);
+  const [targetCaseOpenNotes, setTargetCaseOpenNotes] = useState<boolean>(false);
+  
+  // State for deadline calculation result page
+  const [deadlineCalcData, setDeadlineCalcData] = useState<any>(null);
 
   // Tab History tracker for Back button functionality
   const [tabHistory, setTabHistory] = useState<string[]>(["dashboard"]);
 
   // Mobile sidebar layout drawer toggle
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [dnsInfo, setDnsInfo] = useState<string | null>(null);
 
   // Alarms Fired Registry (to prevent double-firing in the same minute)
   const [firedAlarms, setFiredAlarms] = useState<Set<string>>(() => {
@@ -285,7 +303,7 @@ export default function App() {
             // Show workspace alert
             setCustomDialog({
               isOpen: true,
-              title: `هشدار هوشمند قضایی (همگام‌ساز باد صبا)`,
+              title: `هشدار هوشمند قضایی`,
               message: `موعد ${pt.label} برای رویداد «${ev.title}» فرا رسیده است. ساعت ابلاغ: ${toPersianDigits(ev.time)}`,
               type: "alert",
               onConfirm: () => setCustomDialog(null)
@@ -315,24 +333,60 @@ export default function App() {
     setAppQuote(getRandomQuote());
   };
 
-  // Load Initial persistent states
+  // Load Initial persistent states with resilient fallback layers
   const [dataLoaded, setDataLoaded] = useState(false);
   useEffect(() => {
-    const data = loadAllData();
-    setClients(data.clients);
-    setCases(data.cases);
-    setNotes(data.notes);
-    setEvents(data.events);
+    const loadDataResilient = async () => {
+      let localClients = [];
+      let localCases = [];
+      let localNotes = [];
+      let localDocuments = [];
+      let localEvents = [];
+      let usingIndexedDB = false;
 
-    const loadFullDocs = async () => {
-      const docs = data.documents || [];
+      // 1. First, try reading from IndexedDB (the most robust)
+      try {
+        const idxClients = await documentDb.get("idx_r_clients");
+        const idxCases = await documentDb.get("idx_r_cases");
+        const idxNotes = await documentDb.get("idx_r_notes");
+        const idxDocuments = await documentDb.get("idx_r_documents");
+        const idxEvents = await documentDb.get("idx_r_events");
+
+        if (idxClients && idxCases) {
+          localClients = JSON.parse(idxClients);
+          localCases = JSON.parse(idxCases);
+          localNotes = idxNotes ? JSON.parse(idxNotes) : [];
+          localDocuments = idxDocuments ? JSON.parse(idxDocuments) : [];
+          localEvents = idxEvents ? JSON.parse(idxEvents) : [];
+          usingIndexedDB = true;
+          console.log("Loaded data successfully from robust IndexedDB storage.");
+        }
+      } catch (err) {
+        console.warn("Failed to load initial data from IndexedDB, falling back to localStorage:", err);
+      }
+
+      // 2. Fallback to localStorage/defaults if IndexedDB has no data
+      if (!usingIndexedDB) {
+        const data = loadAllData();
+        localClients = data.clients;
+        localCases = data.cases;
+        localNotes = data.notes;
+        localDocuments = data.documents;
+        localEvents = data.events;
+      }
+
+      setClients(localClients);
+      setCases(localCases);
+      setNotes(localNotes);
+      setEvents(localEvents);
+
+      // 3. Load full documents (incorporating IndexedDB binary dataUrls)
       const enriched = [];
-      for (const d of docs) {
+      for (const d of localDocuments) {
         if (!d.dataUrl) {
           const storedUrl = await documentDb.get(d.id);
           enriched.push({ ...d, dataUrl: storedUrl || undefined });
         } else {
-          // Store locally in IndexedDB if still in localStorage
           await documentDb.set(d.id, d.dataUrl);
           const copy = { ...d };
           delete copy.dataUrl;
@@ -340,11 +394,41 @@ export default function App() {
         }
       }
       setDocuments(enriched);
+      setDataLoaded(true);
     };
-    loadFullDocs().catch(console.error);
 
-    setDataLoaded(true);
+    loadDataResilient().catch(console.error);
   }, []);
+
+  // Robust auto-persistence to IndexedDB to survive localStorage clearance/iframe blocks
+  useEffect(() => {
+    if (!dataLoaded) return;
+    const persistToIndexedDB = async () => {
+      try {
+        const safeDocs = documents.map(d => {
+          const copy = { ...d };
+          delete copy.dataUrl; // Keep IndexedDB metadata small, binary urls are stored separately
+          return copy;
+        });
+        await documentDb.set("idx_r_clients", JSON.stringify(clients));
+        await documentDb.set("idx_r_cases", JSON.stringify(cases));
+        await documentDb.set("idx_r_notes", JSON.stringify(notes));
+        await documentDb.set("idx_r_documents", JSON.stringify(safeDocs));
+        await documentDb.set("idx_r_events", JSON.stringify(events));
+        
+        // Also save to localStorage as a fallback (except documents to avoid 5MB limit)
+        import('./utils/safeStorage').then(({ safeStorage }) => {
+          safeStorage.setItem("r_clients", JSON.stringify(clients));
+          safeStorage.setItem("r_cases", JSON.stringify(cases));
+          safeStorage.setItem("r_notes", JSON.stringify(notes));
+          safeStorage.setItem("r_events", JSON.stringify(events));
+        });
+      } catch (e) {
+        console.warn("IndexedDB auto-save failed:", e);
+      }
+    };
+    persistToIndexedDB();
+  }, [clients, cases, notes, documents, events, dataLoaded]);
 
   // Firebase state tracker
   const [user, setUser] = useState<User | null>(null);
@@ -353,6 +437,27 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
+
+  // Auto-restore from Firestore cloud if local storage is empty/default and a user is logged in
+  useEffect(() => {
+    if (user && dataLoaded) {
+      const isLocalEmpty = (clients.length === 0 && cases.length === 0) ||
+                           (clients.length === 3 && clients[0].id === "cl_1" && cases.length === 3 && cases[0].id === "ca_1");
+      if (isLocalEmpty) {
+        console.log("Local state is empty/default. Attempting to auto-load backup from Firestore for user:", user.uid);
+        restoreFromCloud(user.uid)
+          .then((cloudData) => {
+            if (cloudData) {
+              handleTriggerRestoreData(cloudData);
+              console.log("Successfully auto-restored legal archive from Firestore on login/startup!");
+            }
+          })
+          .catch((err) => {
+            console.error("Auto-restoring from Firestore failed:", err);
+          });
+      }
+    }
+  }, [user, dataLoaded]);
 
   // --- SECURE LOGOUT WITH OPTIONAL CLOUD BACKUP TRIGGER ---
   const handleSecureLogout = () => {
@@ -515,8 +620,8 @@ export default function App() {
     saveData("r_documents", stripped);
   };
 
-  const handleUpdateDocumentName = (id: string, newName: string) => {
-    const updated = documents.map(d => d.id === id ? { ...d, name: newName } : d);
+  const handleUpdateDocument = (id: string, updates: Partial<CaseDocument>) => {
+    const updated = documents.map(d => d.id === id ? { ...d, ...updates } : d);
     setDocuments(updated);
 
     const stripped = updated.map(d => {
@@ -734,6 +839,49 @@ export default function App() {
     saveData("r_notes", parsed.notes || []);
     saveData("r_documents", localDocsWithoutUrls);
     saveData("r_events", parsed.events || []);
+
+    const totalClients = (parsed.clients || []).length;
+    const totalCases = (parsed.cases || []).length;
+    const totalEvents = (parsed.events || []).length;
+
+    // Sync restored data to the cloud if a user is currently logged in,
+    // to prevent cloud metadata mismatch or older cloud backup from overwriting local state.
+    if (user) {
+      const persianDate = new Date().toLocaleDateString("fa-IR");
+      const meta = {
+        date: persianDate,
+        clientsCount: totalClients,
+        casesCount: totalCases,
+        notesCount: (parsed.notes || []).length,
+        docsCount: localDocsWithoutUrls.length,
+        eventsCount: totalEvents
+      };
+
+      try {
+        safeStorage.setItem(`r_cloud_backup_meta_${user.uid}`, JSON.stringify(meta));
+        safeStorage.setItem("r_cloud_backup_slot", JSON.stringify({
+          backupDateShort: persianDate,
+          clients: parsed.clients || [],
+          cases: parsed.cases || [],
+          notes: parsed.notes || [],
+          documents: localDocsWithoutUrls,
+          events: parsed.events || []
+        }));
+
+        await syncFullStateToCloud(user.uid, {
+          clients: parsed.clients || [],
+          cases: parsed.cases || [],
+          notes: parsed.notes || [],
+          documents: localDocsWithoutUrls,
+          events: parsed.events || []
+        });
+        console.log("Successfully synchronized restored data and metadata with the backup cloud.");
+      } catch (cloudErr) {
+        console.warn("Could not sync restored data/metadata with backup cloud:", cloudErr);
+      }
+    }
+
+    alert(`بازیابی با موفقیت انجام شد:\n- ${toPersianDigits(totalClients)} موکل\n- ${toPersianDigits(totalCases)} پرونده\n- ${toPersianDigits(totalEvents)} رویداد و آلارم\n\nاطلاعات با موفقیت جایگزین شد.`);
   };
 
   // --- JSON BACKUP ARCHIVE ENGINES ---
@@ -804,6 +952,22 @@ export default function App() {
     reader.readAsText(file);
   };
 
+  // Check if we are in standalone document viewer mode
+  const params = new URLSearchParams(window.location.search);
+  const standaloneDocId = params.get("previewDocId");
+  const standaloneName = params.get("name") || "سند";
+  const standaloneType = params.get("type") || "pdf";
+
+  if (standaloneDocId) {
+    return (
+      <StandaloneDocViewer
+        docId={standaloneDocId}
+        initialName={standaloneName}
+        initialType={standaloneType}
+      />
+    );
+  }
+
   if (!isAuthorized) {
     return (
       <SecurityGate
@@ -818,7 +982,13 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans relative" dir="rtl">
+    <div className={`min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans relative ${
+      theme === "turquoise" ? "theme-turquoise" :
+      theme === "crimson" ? "theme-crimson" :
+      theme === "emerald" ? "theme-emerald" :
+      theme === "royal" ? "theme-royal" :
+      theme === "dark" ? "theme-dark dark" : ""
+    }`} dir="rtl">
       {/* Mobile Top Bar */}
       <div className="md:hidden bg-slate-950 text-white p-3.5 flex items-center justify-between border-b border-amber-500/30 z-30">
         <div className="flex items-center gap-3">
@@ -933,6 +1103,21 @@ export default function App() {
 
             <button
               onClick={() => {
+                setActiveTab("calendar");
+                setSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition select-none cursor-pointer duration-150 ${
+                activeTab === "calendar"
+                  ? "bg-amber-500 text-white font-black shadow-md shadow-amber-500/10"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              }`}
+            >
+              <CalendarIcon className="w-4 h-4 shrink-0" />
+              رویدادها و تقویم شمسی
+            </button>
+
+            <button
+              onClick={() => {
                 setActiveTab("chat");
                 setSidebarOpen(false);
               }}
@@ -946,6 +1131,7 @@ export default function App() {
               مشاوره هوشمند (چت AI)
             </button>
 
+            {/* Removed Adliran */}
             <button
               onClick={() => {
                 setActiveTab("adliran");
@@ -958,22 +1144,22 @@ export default function App() {
               }`}
             >
               <Link2 className="w-4 h-4 shrink-0" />
-              اتصال به عدل ایران
+              اتصال به سایت عدل ایران
             </button>
 
             <button
               onClick={() => {
-                setActiveTab("laws");
+                setActiveTab("terminology");
                 setSidebarOpen(false);
               }}
               className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition select-none cursor-pointer duration-150 ${
-                activeTab === "laws"
+                activeTab === "terminology"
                   ? "bg-amber-500 text-white font-black shadow-md shadow-amber-500/10"
                   : "text-slate-400 hover:bg-slate-800 hover:text-white"
               }`}
             >
-              <BookOpen className={`w-4 h-4 shrink-0 ${activeTab === "laws" ? "text-white" : "text-amber-500"}`} />
-              یار هوش مصنوعی قوانین و مقررات جمهوری اسلامی ایران
+              <Search className={`w-4 h-4 shrink-0 ${activeTab === "terminology" ? "text-white" : "text-amber-500"}`} />
+              لغت‌نامه و ترمینولوژی
             </button>
 
             <button
@@ -1026,6 +1212,107 @@ export default function App() {
 
         {/* Backups & Settings abbreviated quick access block */}
         <div className="border-t border-slate-800/85 pt-4 space-y-4 text-[11px] font-bold">
+          <div className="space-y-2">
+            <span className="text-[10px] text-slate-400 block text-right pr-1">پوسته و تم نرم‌افزار:</span>
+            <div className="grid grid-cols-2 gap-1.5 bg-slate-950/45 p-1.5 rounded-xl border border-slate-850/60">
+              <button
+                type="button"
+                onClick={() => {
+                  setTheme("amber");
+                  safeStorage.setItem("r_app_theme", "amber");
+                }}
+                className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  theme === "amber"
+                    ? "bg-amber-500 text-slate-950 shadow"
+                    : "text-slate-400 hover:text-white hover:bg-slate-900"
+                }`}
+              >
+                <div className="w-2 h-2 rounded-full bg-amber-500" />
+                طلایی کلاسیک
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTheme("turquoise");
+                  safeStorage.setItem("r_app_theme", "turquoise");
+                }}
+                className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  theme === "turquoise"
+                    ? "bg-teal-500 text-slate-950 shadow"
+                    : "text-slate-400 hover:text-white hover:bg-slate-900"
+                }`}
+              >
+                <div className="w-2 h-2 rounded-full bg-teal-400" />
+                فیروزه‌ای
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTheme("crimson");
+                  safeStorage.setItem("r_app_theme", "crimson");
+                }}
+                className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  theme === "crimson"
+                    ? "bg-rose-600 text-white shadow"
+                    : "text-slate-400 hover:text-white hover:bg-slate-900"
+                }`}
+              >
+                <div className="w-2 h-2 rounded-full bg-rose-500" />
+                زرشکی مجلل
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTheme("emerald");
+                  safeStorage.setItem("r_app_theme", "emerald");
+                }}
+                className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  theme === "emerald"
+                    ? "bg-emerald-600 text-white shadow"
+                    : "text-slate-400 hover:text-white hover:bg-slate-900"
+                }`}
+              >
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                سبز قضایی
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTheme("royal");
+                  safeStorage.setItem("r_app_theme", "royal");
+                }}
+                className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  theme === "royal"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:text-white hover:bg-slate-900"
+                }`}
+              >
+                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                آبی سلطنتی
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTheme("dark");
+                  safeStorage.setItem("r_app_theme", "dark");
+                }}
+                className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  theme === "dark"
+                    ? "bg-slate-900 text-white shadow border border-slate-700"
+                    : "text-slate-400 hover:text-white hover:bg-slate-900"
+                }`}
+              >
+                <div className="w-2 h-2 rounded-full bg-black border border-slate-600" />
+                مشکی اولد (کاهش باتری)
+              </button>
+            </div>
+          </div>
+
           <div className="flex flex-col gap-2">
             <button
               onClick={() => {
@@ -1069,11 +1356,14 @@ export default function App() {
                 {activeTab === "chat" && <MessageSquare className="w-5 h-5 font-bold" />}
                 {activeTab === "adliran" && <Link2 className="w-5 h-5 font-bold" />}
                 {activeTab === "terminology" && <Search className="w-5 h-5 font-bold" />}
-                {activeTab === "laws" && <BookOpen className="w-5 h-5 font-bold" />}
+                {activeTab === "laws-db" && <BookOpen className="w-5 h-5 font-bold" />}
+                {activeTab === "ara-vahdat" && <BookOpen className="w-5 h-5 font-bold" />}
+                {activeTab === "nazariat" && <HelpCircle className="w-5 h-5 font-bold" />}
                 {activeTab === "quick-notes" && <FileText className="w-5 h-5 font-bold" />}
                 {activeTab === "backup" && <Shield className="w-5 h-5 font-bold" />}
                 {activeTab === "backup-center" && <Database className="w-5 h-5 font-bold" />}
                 {activeTab === "event-archive" && <Archive className="w-5 h-5 font-bold" />}
+                {activeTab === "deadline-result" && <Clock className="w-5 h-5 font-bold" />}
               </div>
               <div className="text-right">
                 <h2 className="text-xs font-black text-slate-800">
@@ -1084,11 +1374,14 @@ export default function App() {
                   {activeTab === "chat" && "مشاوره هوشمند (چت AI)"}
                   {activeTab === "adliran" && "اتصال به عدل ایران"}
                   {activeTab === "terminology" && "ترمینو‌لوژی حقوقی"}
-                  {activeTab === "laws" && "یار هوش مصنوعی قوانین و مقررات جمهوری اسلامی ایران"}
+                  {activeTab === "laws-db" && "مجموعه قوانین"}
+                  {activeTab === "ara-vahdat" && "مجموعه آرا وحدت رویه"}
+                  {activeTab === "nazariat" && "نظریات مشورتی"}
                   {activeTab === "quick-notes" && "یادداشت"}
                   {activeTab === "backup" && "تنظیمات امنیتی و رمز ورود"}
                   {activeTab === "backup-center" && "مرکز پشتیبان‌گیری اطلاعات دفتر"}
                   {activeTab === "event-archive" && "بایگانی رویدادهای گذشته"}
+                  {activeTab === "deadline-result" && "نتیجه محاسبه موعد قانونی"}
                 </h2>
                 <p className="text-[10px] text-slate-400 mt-0.5 font-bold font-sans">بخش فعال در پورتال هوشمند مدیریت وکالت {lawyerName || "وکیل"}</p>
               </div>
@@ -1117,6 +1410,11 @@ export default function App() {
               } else {
                 setEditingReminder(undefined);
               }
+              if (tab === "cases" && typeof stateToPass === "string") {
+                setTargetCaseId(stateToPass);
+              } else {
+                setTargetCaseId(undefined);
+              }
               setActiveTab(tab);
               if (subTab) setActiveCaseSubTab(subTab);
             }}
@@ -1132,6 +1430,8 @@ export default function App() {
         {activeTab === "cases" && (
           <CaseManager
             defaultSubTab={activeCaseSubTab}
+            initialCaseId={targetCaseId}
+            initialOpenNotes={targetCaseOpenNotes}
             clients={clients}
             cases={cases}
             notes={notes}
@@ -1143,16 +1443,31 @@ export default function App() {
             onUpdateNote={handleUpdateNote}
             onDeleteNote={handleDeleteNote}
             onAddDocument={handleAddDocument}
-            onUpdateDocumentName={handleUpdateDocumentName}
+            onUpdateDocument={handleUpdateDocument}
             onUpdateDocumentList={handleUpdateDocumentList}
             onDeleteDocument={handleDeleteDocument}
             onDeleteCase={handleDeleteCase}
             onDeleteClient={handleDeleteClient}
             onUpdateClient={handleUpdateClient}
+            onNavigate={(tab) => setActiveTab(tab as any)}
           />
         )}
 
-        {activeTab === "calculators" && <LegalCalculators />}
+        {activeTab === "calculators" && (
+          <LegalCalculators 
+            onCalculateDeadline={(data) => {
+              setDeadlineCalcData(data);
+              setActiveTab("deadline-result");
+            }} 
+          />
+        )}
+
+        {activeTab === "deadline-result" && (
+          <DeadlineResultPage 
+            {...deadlineCalcData}
+            onBack={() => setActiveTab("calculators")}
+          />
+        )}
 
         {activeTab === "finance" && (
           <FinanceLedger
@@ -1178,7 +1493,11 @@ export default function App() {
 
         {activeTab === "terminology" && <Terminology />}
 
-        {activeTab === "laws" && <LawsExplorer />}
+        {activeTab === "laws-db" && <LawsDatabase />}
+
+        {activeTab === "ara-vahdat" && <LawsDatabase mode="ara-vahdat" />}
+
+        {activeTab === "nazariat" && <LawsDatabase mode="nazariat" />}
 
         {activeTab === "quick-notes" && <QuickNotes />}
 
@@ -1209,6 +1528,25 @@ export default function App() {
             lawyerName={lawyerName}
             lawyerNationalId={lawyerNationalId}
             onTriggerRestore={handleTriggerRestoreData}
+             onNavigate={(tab, subTab, stateToPass) => {
+              if (tab === "cases") {
+                if (typeof stateToPass === "string") {
+                  setTargetCaseId(stateToPass);
+                  setTargetCaseOpenNotes(false);
+                } else if (typeof stateToPass === "object" && stateToPass !== null) {
+                  setTargetCaseId(stateToPass.caseId);
+                  setTargetCaseOpenNotes(!!stateToPass.openNotes);
+                } else {
+                  setTargetCaseId(undefined);
+                  setTargetCaseOpenNotes(false);
+                }
+              } else {
+                setTargetCaseId(undefined);
+                setTargetCaseOpenNotes(false);
+              }
+              setActiveTab(tab as any);
+              if (subTab) setActiveCaseSubTab(subTab as any);
+            }}
           />
         )}
 
@@ -1220,6 +1558,7 @@ export default function App() {
             onBack={handleBack}
             editingEvent={editingReminder}
             onAddDocument={handleAddDocument}
+            dataLoaded={dataLoaded}
           />
         )}
 

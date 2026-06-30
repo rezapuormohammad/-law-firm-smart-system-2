@@ -1,6 +1,6 @@
 import { safeStorage } from "../utils/safeStorage";
-import React, { useState, useEffect } from "react";
-import { Save, FileText, CheckCircle2, Plus, Trash2, Edit, ChevronRight, Eye, Calendar, Clock } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Save, FileText, CheckCircle2, Plus, Trash2, Edit, ChevronRight, Eye, Calendar, Clock, Mic, Square, Loader2 } from "lucide-react";
 import { toPersianDigits } from "../utils/shamsi";
 
 interface Note {
@@ -15,6 +15,11 @@ export default function QuickNotes() {
   const [activeView, setActiveView] = useState<"list" | "editor" | "view">("list");
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [isSaved, setIsSaved] = useState(false);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
 
   useEffect(() => {
     try {
@@ -100,6 +105,70 @@ export default function QuickNotes() {
     setTimeout(() => setIsSaved(false), 2000);
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        await handleAudioTranscription(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error accessing microphone:", error);
+      alert("دسترسی به میکروفون امکان‌پذیر نیست.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleAudioTranscription = async (blob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result?.toString().split(',')[1];
+        if (!base64data) throw new Error("خطا در پردازش فایل صوتی");
+
+        const res = await fetch("/api/gemini/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ audioData: base64data, mimeType: blob.type })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.text) {
+          setCurrentNote(prev => prev ? { ...prev, content: prev.content + (prev.content ? "\n" : "") + data.text } : prev);
+        } else {
+          alert(data.error || "خطا در تبدیل صوت به متن.");
+        }
+        setIsTranscribing(false);
+      };
+    } catch (err) {
+      console.error(err);
+      alert("خطا در تبدیل صوت به متن.");
+      setIsTranscribing(false);
+    }
+  };
+
   const formatDate = (ts: number) => {
     const d = new Date(ts);
     return new Intl.DateTimeFormat('fa-IR', { 
@@ -137,13 +206,45 @@ export default function QuickNotes() {
         )}
 
         {activeView === "editor" && (
-          <button
-            onClick={saveCurrentNote}
-            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-2xl text-xs md:text-sm font-black transition-all shadow-md shadow-emerald-500/20"
-          >
-            {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-            {isSaved ? "ذخیره شد" : "ذخیره یادداشت"}
-          </button>
+          <div className="flex items-center gap-2">
+            {!isRecording && !isTranscribing && (
+              <button
+                onClick={startRecording}
+                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-600 rounded-2xl text-xs md:text-sm font-black transition-all border border-indigo-100"
+              >
+                <Mic className="w-4 h-4" />
+                تبدیل صوت به متن
+              </button>
+            )}
+            
+            {isRecording && (
+              <button
+                onClick={stopRecording}
+                className="flex items-center gap-2 px-4 py-2.5 bg-red-500 hover:bg-red-600 active:scale-95 text-white rounded-2xl text-xs md:text-sm font-black transition-all animate-pulse shadow-md shadow-red-500/20"
+              >
+                <Square className="w-4 h-4" />
+                توقف ضبط
+              </button>
+            )}
+
+            {isTranscribing && (
+              <button
+                disabled
+                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-100 text-indigo-500 rounded-2xl text-xs md:text-sm font-black"
+              >
+                <Loader2 className="w-4 h-4 animate-spin" />
+                در حال متن‌نویسی...
+              </button>
+            )}
+
+            <button
+              onClick={saveCurrentNote}
+              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-2xl text-xs md:text-sm font-black transition-all shadow-md shadow-emerald-500/20"
+            >
+              {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              {isSaved ? "ذخیره شد" : "ذخیره یادداشت"}
+            </button>
+          </div>
         )}
 
         {activeView === "view" && currentNote && (
@@ -180,6 +281,7 @@ export default function QuickNotes() {
                      >
                         <div className="flex flex-col overflow-hidden pr-2">
                            <h3 className="font-black text-slate-800 text-sm truncate group-hover:text-amber-700 transition-colors">{note.title || "بدون عنوان"}</h3>
+                           <p className="text-[10px] text-slate-450 mt-1 line-clamp-1 font-semibold">{note.content}</p>
                         </div>
                         
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

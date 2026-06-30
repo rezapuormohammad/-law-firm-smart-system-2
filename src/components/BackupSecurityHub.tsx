@@ -151,6 +151,22 @@ export default function BackupSecurityHub({
         const parsed = JSON.parse(event.target?.result as string);
         if (parsed.clients && parsed.cases && parsed.notes && parsed.documents && parsed.events) {
           onTriggerRestore(parsed);
+
+          // Update local cloud backup metadata display if user is logged in
+          if (user) {
+            const persianDate = new Date().toLocaleDateString("fa-IR");
+            const meta = {
+              date: persianDate,
+              clientsCount: parsed.clients.length,
+              casesCount: parsed.cases.length,
+              notesCount: parsed.notes.length,
+              docsCount: parsed.documents.length,
+              eventsCount: parsed.events.length
+            };
+            setCloudBackupMeta(meta);
+            setCloudBackupExists(true);
+          }
+
           alert("اطلاعات فایل پشتیبان پورتال با موفقیت بازخوانی و جایگزین داده‌های محلی مرورگر گردید.");
         } else {
           alert("ساختار فایل ورودی با شناسه‌های عدلی دفتری این برنامه همخوانی ندارد. لطفاً فایل معتبر انتخاب کنید.");
