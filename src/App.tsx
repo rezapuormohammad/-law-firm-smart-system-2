@@ -1069,7 +1069,7 @@ export default function App() {
               }`}
             >
               <Layers className="w-4 h-4 shrink-0" />
-              داشبورد اداری دفتر
+              داشبورد
             </button>
 
             <button
