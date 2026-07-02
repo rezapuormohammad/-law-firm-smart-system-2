@@ -12,6 +12,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // --- Precedents ---
+    match /precedents/{precedentId} {
+      allow read: if true;
+      allow update: if isSignedIn();
+    }
+
     // --- User Scope and Subcollections ---
     match /users/{userId} {
       allow get, write: if isSignedIn() && request.auth.uid == userId;

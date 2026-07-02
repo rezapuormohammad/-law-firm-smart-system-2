@@ -26,6 +26,7 @@ import LawsDatabase from "./components/LawsDatabase";
 import QuickNotes from "./components/QuickNotes";
 import StandaloneDocViewer from "./components/StandaloneDocViewer";
 import DeadlineResultPage from "./components/DeadlineResultPage";
+import JudicialPrecedents from "./components/JudicialPrecedents";
 import {
   Briefcase,
   Users,
@@ -72,7 +73,7 @@ export default function App() {
 
   // Navigation active tab
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "cases" | "calculators" | "calendar" | "chat" | "adliran" | "finance" | "backup" | "backup-center" | "add-reminder" | "event-archive" | "terminology" | "laws" | "laws-db" | "quick-notes" | "ara-vahdat" | "nazariat" | "deadline-result"
+    "dashboard" | "cases" | "calculators" | "calendar" | "chat" | "adliran" | "finance" | "backup" | "backup-center" | "add-reminder" | "event-archive" | "terminology" | "laws" | "laws-db" | "nazariat" | "deadline-result" | "judicial-precedents"
   >("dashboard");
   const [activeCaseSubTab, setActiveCaseSubTab] = useState<"cases" | "closedCases" | "clients">("cases");
   const [targetCaseId, setTargetCaseId] = useState<string | undefined>(undefined);
@@ -1162,20 +1163,7 @@ export default function App() {
               لغت‌نامه و ترمینولوژی
             </button>
 
-            <button
-              onClick={() => {
-                setActiveTab("quick-notes");
-                setSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition select-none cursor-pointer duration-150 ${
-                activeTab === "quick-notes"
-                  ? "bg-amber-500 text-white font-black shadow-md shadow-amber-500/10"
-                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
-            >
-              <FileText className={`w-4 h-4 shrink-0 ${activeTab === "quick-notes" ? "text-white" : "text-amber-500"}`} />
-              یادداشت
-            </button>
+
 
 
             <button
@@ -1357,9 +1345,7 @@ export default function App() {
                 {activeTab === "adliran" && <Link2 className="w-5 h-5 font-bold" />}
                 {activeTab === "terminology" && <Search className="w-5 h-5 font-bold" />}
                 {activeTab === "laws-db" && <BookOpen className="w-5 h-5 font-bold" />}
-                {activeTab === "ara-vahdat" && <BookOpen className="w-5 h-5 font-bold" />}
                 {activeTab === "nazariat" && <HelpCircle className="w-5 h-5 font-bold" />}
-                {activeTab === "quick-notes" && <FileText className="w-5 h-5 font-bold" />}
                 {activeTab === "backup" && <Shield className="w-5 h-5 font-bold" />}
                 {activeTab === "backup-center" && <Database className="w-5 h-5 font-bold" />}
                 {activeTab === "event-archive" && <Archive className="w-5 h-5 font-bold" />}
@@ -1375,9 +1361,7 @@ export default function App() {
                   {activeTab === "adliran" && "اتصال به عدل ایران"}
                   {activeTab === "terminology" && "ترمینو‌لوژی حقوقی"}
                   {activeTab === "laws-db" && "مجموعه قوانین"}
-                  {activeTab === "ara-vahdat" && "مجموعه آرا وحدت رویه"}
                   {activeTab === "nazariat" && "نظریات مشورتی"}
-                  {activeTab === "quick-notes" && "یادداشت"}
                   {activeTab === "backup" && "تنظیمات امنیتی و رمز ورود"}
                   {activeTab === "backup-center" && "مرکز پشتیبان‌گیری اطلاعات دفتر"}
                   {activeTab === "event-archive" && "بایگانی رویدادهای گذشته"}
@@ -1495,11 +1479,11 @@ export default function App() {
 
         {activeTab === "laws-db" && <LawsDatabase />}
 
-        {activeTab === "ara-vahdat" && <LawsDatabase mode="ara-vahdat" />}
+
 
         {activeTab === "nazariat" && <LawsDatabase mode="nazariat" />}
 
-        {activeTab === "quick-notes" && <QuickNotes />}
+
 
         {activeTab === "backup" && (
           <BackupSecurityHub

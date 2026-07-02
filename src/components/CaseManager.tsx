@@ -2071,6 +2071,8 @@ export default function CaseManager({
                         <option value="دیوان عدالت اداری">دیوان عدالت اداری</option>
                         <option value="شورای حل اختلاف">شورای حل اختلاف</option>
                         <option value="دادگاه صلح">دادگاه صلح</option>
+                        <option value="دادگاه عمومی حقوقی">دادگاه عمومی حقوقی</option>
+                        <option value="دادگاه کیفری ۲">دادگاه کیفری ۲</option>
                         <option value="اجرای احکام کیفری">اجرای احکام کیفری</option>
                         <option value="اجرای احکام مدنی">اجرای احکام مدنی</option>
                         <option value="سایر">سایر</option>

@@ -54,59 +54,10 @@ export default function DeadlineResultPage({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Main Deadline Box */}
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden flex flex-col">
-          <div className="bg-slate-800 text-white px-5 py-4 text-xs font-black flex items-center gap-2">
-            <Clock className="w-4 h-4" />
-            نتیجه محاسبه نهایی
-          </div>
-          <div className="p-6 flex-1 space-y-4">
-            <div className="flex justify-between text-xs font-bold text-slate-500">
-              <span>تاریخ ابلاغ اولیه:</span>
-              <span className="text-slate-900 font-black">{originDate}</span>
-            </div>
-            <div className="flex justify-between text-xs font-bold text-slate-500">
-              <span>نوع موعد:</span>
-              <span className="text-slate-900 font-black text-left max-w-[150px]">{deadlineResult.typeName}</span>
-            </div>
-            <div className="flex justify-between text-xs font-bold text-slate-500 border-t border-slate-50 pt-3">
-              <span>فرجه قانونی:</span>
-              <span className="text-slate-900 font-black">
-                {hasNoLimit ? "فاقد محدودیت زمانی" : `${toPersianDigits(deadlineResult.baseDaysCount)} روز`}
-              </span>
-            </div>
-            
-            <div className="pt-4 border-t border-slate-100">
-              <div className="text-[10px] font-black text-slate-400 mb-2">آخرین مهلت قانونی تقدیم لایحه:</div>
-              <div className="text-lg font-black text-red-600 font-mono text-left">
-                {deadlineType.includes("اعتراض ثالث اصلی") ? (
-                  "قبل از اجرای کامل حکم"
-                ) : deadlineType.includes("اعتراض ثالث تبعی") ? (
-                  "تا پایان دادرسی اصلی"
-                ) : holidayAdjustment.explanation ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 justify-start">
-                      <span className="text-sm text-slate-400 line-through font-mono">
-                        {toPersianDigits(deadlineResult.dueDate)}
-                      </span>
-                      <span className="text-[10px] bg-red-50 text-red-700 px-2 py-0.5 rounded-lg font-black border border-red-100">تعطیل رسمی</span>
-                    </div>
-                    <div className="text-xl font-black text-red-600 font-mono">
-                      {holidayAdjustment.adjustedDate}
-                    </div>
-                  </div>
-                ) : (
-                  toPersianDigits(deadlineResult.dueDate)
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 gap-4">
         {/* Judicial Deadline Box */}
         {judicialResult && judicialDaysInput && (
-          <div className="bg-amber-50 border border-amber-200 rounded-3xl shadow-sm overflow-hidden flex flex-col">
+          <div className="bg-amber-50 border border-amber-200 rounded-3xl shadow-sm overflow-hidden flex flex-col md:max-w-md">
             <div className="bg-amber-600 text-white px-5 py-4 text-xs font-black flex items-center gap-2">
               <Clock className="w-4 h-4" />
               مهلت قضایی سفارشی
