@@ -611,7 +611,7 @@ export default function Dashboard({
 
             {/* Spiritual & Time Status Widget (Centered, beautifully padded frame, scroll-safe) */}
             <div className="w-full bg-white/80 border border-slate-150/70 rounded-2xl px-6 py-6 sm:py-8 flex flex-col items-center justify-center text-center select-none gap-4 sm:gap-6 mt-4 shadow-sm hover:shadow-md transition-all duration-300 animate-in fade-in duration-300">
-              <div className="text-[20px] sm:text-2xl md:text-[26px] font-black text-slate-700 leading-relaxed tracking-wide">
+              <div className="text-[20px] sm:text-2xl md:text-[26px] font-black text-cyan-600 leading-relaxed tracking-wide">
                 ذکر روز: {dhikrText}
               </div>
               <div className="text-2xl sm:text-3xl md:text-[32px] font-black text-cyan-600 tracking-tight">
