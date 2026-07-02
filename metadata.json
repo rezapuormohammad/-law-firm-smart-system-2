@@ -1,6 +1,6 @@
 {
-  "name": "Legal Calculators System",
-  "description": "Smart automation platform for modern law firms.",
+  "name": "سامانه هوشمند وکالت - رضا پورمحمد",
+  "description": "سامانه هوشمند اتوماسیون و محاسبات حقوقی دفتر وکالت رضا پورمحمد",
   "requestFramePermissions": [
     "microphone"
   ],
